@@ -52,5 +52,27 @@ namespace SignalApp.API.Controllers
             // Başarılı (200 OK) ve oluşturulan veriyi döndür.
             return Ok(newSignal);
         }
+        // 3. SİNYAL SİL (DELETE: api/signals/5)
+        [HttpDelete("{id}")] // Bu metoda ulaşmak için ID verilmesi şart (örn: api/signals/5)
+        public async Task<IActionResult> DeleteSignal(int id)
+        {
+            // Önce veritabanında bu ID'ye sahip sinyal var mı diye bakıyoruz.
+            var signal = await _context.Signals.FindAsync(id);
+
+            // Eğer yoksa "Bulunamadı" hatası dön.
+            if (signal == null)
+            {
+                return NotFound("Böyle bir sinyal bulunamadı.");
+            }
+
+            // Varsa, EF Core'a "Bunu silinecekler listesine al" de.
+            _context.Signals.Remove(signal);
+
+            // Değişiklikleri veritabanına uygula.
+            await _context.SaveChangesAsync();
+
+            // Başarılı, içerik yok (204 No Content) dön. (Silme işleminde genelde veri dönülmez).
+            return NoContent();
+        }
     }
 }

@@ -1,0 +1,35 @@
+<svg width="168" height="72" viewBox="0 0 168 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g filter="url(#filter0_dn_772_12097)">
+<rect x="26" y="22" width="116" height="20" rx="8" fill="url(#paint0_radial_772_12097)"/>
+</g>
+<defs>
+<filter id="filter0_dn_772_12097" x="0" y="0" width="168" height="72" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feMorphology radius="1" operator="dilate" in="SourceAlpha" result="effect1_dropShadow_772_12097"/>
+<feOffset dy="4"/>
+<feGaussianBlur stdDeviation="12.5"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.12 0"/>
+<feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_772_12097"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feTurbulence type="fractalNoise" baseFrequency="3.3333332538604736 3.3333332538604736" stitchTiles="stitch" numOctaves="3" result="noise" seed="9876" />
+<feColorMatrix in="noise" type="luminanceToAlpha" result="alphaNoise" />
+<feComponentTransfer in="alphaNoise" result="coloredNoise1">
+<feFuncA type="discrete" tableValues="1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 "/>
+</feComponentTransfer>
+<feComposite operator="in" in2="shape" in="coloredNoise1" result="noise1Clipped" />
+<feFlood flood-color="rgba(242, 241, 246, 0.12)" result="color1Flood" />
+<feComposite operator="in" in2="noise1Clipped" in="color1Flood" result="color1" />
+<feMerge result="effect2_noise_772_12097">
+<feMergeNode in="shape" />
+<feMergeNode in="color1" />
+</feMerge>
+<feBlend mode="normal" in="effect2_noise_772_12097" in2="effect1_dropShadow_772_12097" result="effect2_noise_772_12097"/>
+</filter>
+<radialGradient id="paint0_radial_772_12097" cx="0" cy="0" r="1" gradientTransform="matrix(94.6714 12.8571 -36.1483 13.8867 55.8286 26.1429)" gradientUnits="userSpaceOnUse">
+<stop stop-color="#F2F1F6"/>
+<stop offset="1" stop-color="#252422" stop-opacity="0.2"/>
+</radialGradient>
+</defs>
+</svg>

@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Canvas, center, RoundedRect } from '@shopify/react-native-skia';
 import { useDerivedValue } from 'react-native-reanimated';
 import Svg, { Defs, RadialGradient, LinearGradient as SvgLinearGradient, Rect, Stop, Circle } from 'react-native-svg';
+import { LiquidGlassView } from 'expo-liquid-glass';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -766,18 +767,35 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
   return (
     <View style={styles.bottomBarWrapper} pointerEvents="box-none">
       <View style={styles.glassContainerRow}>
-        <View style={styles.newNavContainer}>
-          <Canvas style={StyleSheet.absoluteFill}>
-            <RoundedRect x={0} y={0} width={302} height={NEW_NAV_HEIGHT} r={NEW_NAV_HEIGHT / 2} color="rgba(255, 255, 255, 0.65)" />
-            <RoundedRect x={useDerivedValue(() => activeBubbleX.value + CONTAINER_PADDING_H-4)} y={(NEW_NAV_HEIGHT - BUBBLE_SIZE) / 2} width={100} height={BUBBLE_SIZE} r={BUBBLE_SIZE / 2} color="rgba(237, 237, 237, 1)" />
+        <View style={[styles.newNavContainer, { position: 'relative', overflow: 'hidden' }]}>
+          {Platform.OS === 'ios' && (
+            <LiquidGlassView
+              variant="regular"
+              interactive
+              cornerRadius={NEW_NAV_HEIGHT / 2}
+              style={[StyleSheet.absoluteFill, { zIndex: 0 }]}
+            />
+          )}
+          <Canvas style={[StyleSheet.absoluteFill, { zIndex: Platform.OS === 'ios' ? 1 : 0 }]}>
+            {Platform.OS !== 'ios' && (
+              <RoundedRect x={0} y={0} width={302} height={NEW_NAV_HEIGHT} r={NEW_NAV_HEIGHT / 2} color="rgba(255, 255, 255, 0.65)" />
+            )}
+            <RoundedRect x={useDerivedValue(() => activeBubbleX.value + CONTAINER_PADDING_H - 4)} y={(NEW_NAV_HEIGHT - BUBBLE_SIZE) / 2} width={100} height={BUBBLE_SIZE} r={BUBBLE_SIZE / 2} color="rgba(237, 237, 237, 1)" />
           </Canvas>
-          {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
-          {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
-          {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
+          <View style={{ zIndex: 2, flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+            {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
+            {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
+            {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
+          </View>
         </View>
         <TouchableOpacity onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }} onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }} delayLongPress={250} disabled={isFabDisabled} activeOpacity={0.88} style={isFabDisabled ? styles.disabledButton : undefined}>
           <View style={styles.glassFab}>
-            <Ionicons name="add" size={30} color={isFabDisabled ? '#888' : '#1a1a1a'} style={{ zIndex: 2 }} />
+            {Platform.OS === 'ios' && (
+              <LiquidGlassView variant="regular" interactive cornerRadius={25} style={StyleSheet.absoluteFill} />
+            )}
+            <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center', zIndex: 1 }]}>
+              <Ionicons name="add" size={30} color={isFabDisabled ? '#888' : '#1a1a1a'} />
+            </View>
           </View>
         </TouchableOpacity>
       </View>

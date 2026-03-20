@@ -1,50 +1,74 @@
-# Welcome to your Expo app 👋
+# SignalApp Frontend
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo (SDK 54) tabanli mobil uygulama.
 
-## Get started
-
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Gelistirme
 
 ```bash
-npm run reset-project
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## iOS Release (EAS Build + EAS Submit)
 
-## Learn more
+Bu adimlar iOS icin TestFlight/App Store yukleme sirasini netlestirir.
 
-To learn more about developing your project with Expo, look at the following resources:
+### 1) Hesap ve ortam dogrulamasi
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+# Expo hesabini kontrol et
+npx eas-cli whoami
 
-## Join the community
+# Giris yapman gerekiyorsa
+npx eas-cli login
 
-Join our community of developers creating universal apps.
+# Apple hesabina baglanti + iOS proje konfig kontrolu
+npx eas-cli build:configure --platform ios
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+`build:configure` asamasinda:
+- dogru Apple Team secilmis olmali,
+- bundle identifier `com.signalapp.app` ile eslesmeli,
+- sertifika/provisioning olusturma adimlari tamamlanmali.
+
+### 2) Preview build (once dogrulama)
+
+```bash
+npx eas-cli build -p ios --profile preview
+```
+
+Bu build'i TestFlight ic test veya cihaz dogrulamasi icin kullan.
+
+### 3) Production build
+
+```bash
+npx eas-cli build -p ios --profile production
+```
+
+Bu adim App Store'a gidecek release build'ini uretir.
+
+### 4) App Store Connect'e submit
+
+```bash
+npx eas-cli submit -p ios --profile production
+```
+
+Submit sonrasi build'i App Store Connect > TestFlight altinda takip et.
+
+## NPM script kisayollari
+
+Ayni akisi script olarak da calistirabilirsin:
+
+```bash
+npm run eas:whoami
+npm run eas:configure:ios
+npm run release:ios:preview
+npm run release:ios:production
+npm run release:ios:submit
+```
+
+## TestFlight readiness checklist
+
+Metadata ve smoke test kontrolleri icin:
+
+- [`docs/ios-release-checklist.md`](docs/ios-release-checklist.md)

@@ -8,10 +8,14 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "eas:whoami": "npx eas-cli whoami",
+    "eas:configure:ios": "npx eas-cli build:configure --platform ios",
+    "release:ios:preview": "npx eas-cli build -p ios --profile preview",
+    "release:ios:production": "npx eas-cli build -p ios --profile production",
+    "release:ios:submit": "npx eas-cli submit -p ios --profile production"
   },
   "dependencies": {
-    "expo-liquid-glass": "file:./modules/expo-liquid-glass",
     "@expo-google-fonts/host-grotesk": "^0.4.1",
     "@expo-google-fonts/space-grotesk": "^0.4.1",
     "@expo/ui": "~0.2.0-beta.9",
@@ -30,6 +34,8 @@
     "expo-image": "~3.0.11",
     "expo-linear-gradient": "~15.0.8",
     "expo-linking": "~8.0.11",
+    "expo-liquid-glass": "file:./modules/expo-liquid-glass",
+    "expo-modules-core": "~3.0.29",
     "expo-router": "~6.0.23",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",

@@ -100,8 +100,10 @@ const styles = StyleSheet.create({
   itemDivider: { position: 'absolute', bottom: 0, left: 16, right: 16, height: StyleSheet.hairlineWidth, backgroundColor: '#E5E5E5' },
   
   bottomBarWrapper: { position: 'absolute', bottom: 40, left: 0, right: 0, alignItems: 'center', zIndex: 999 },
-  glassContainerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 }, 
-  newNavContainer: { width: NEW_NAV_WIDTH, height: NEW_NAV_HEIGHT, borderRadius: NEW_NAV_HEIGHT / 2, overflow: 'hidden', backgroundColor: 'rgba(246, 246, 246, 1)', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 15, elevation: 5, flexDirection: 'row', alignItems: 'center', paddingHorizontal: CONTAINER_PADDING_H, position: 'relative' },
+  glassContainerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  navShadowWrapper: { width: NEW_NAV_WIDTH, height: NEW_NAV_HEIGHT, borderRadius: NEW_NAV_HEIGHT / 2, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 5 },
+  fabShadowWrapper: { width: 50, height: 50, borderRadius: 25, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 5 },
+  newNavContainer: { width: NEW_NAV_WIDTH, height: NEW_NAV_HEIGHT, borderRadius: NEW_NAV_HEIGHT / 2, overflow: 'hidden', backgroundColor: Platform.OS === 'ios' ? 'transparent' : 'rgba(246, 246, 246, 1)', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 15, elevation: 5, flexDirection: 'row', alignItems: 'center', paddingHorizontal: CONTAINER_PADDING_H, position: 'relative' },
   navItem: { width: TAB_WIDTH, alignItems: 'center', justifyContent: 'center', height: '100%', zIndex: 2 },
   navItemContent: { alignItems: 'center', justifyContent: 'center', gap: 4 },
   navLabel: { fontFamily: 'HostGrotesk_500Medium', fontSize: 10, color: Colors.secondaryText },
@@ -767,37 +769,44 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
   return (
     <View style={styles.bottomBarWrapper} pointerEvents="box-none">
       <View style={styles.glassContainerRow}>
-        <View style={[styles.newNavContainer, { position: 'relative', overflow: 'hidden' }]}>
-          {Platform.OS === 'ios' && (
-            <LiquidGlassView
-              variant="regular"
-              interactive
-              cornerRadius={NEW_NAV_HEIGHT / 2}
-              style={[StyleSheet.absoluteFill, { zIndex: 0 }]}
-            />
-          )}
-          <Canvas style={[StyleSheet.absoluteFill, { zIndex: Platform.OS === 'ios' ? 1 : 0 }]}>
-            {Platform.OS !== 'ios' && (
-              <RoundedRect x={0} y={0} width={302} height={NEW_NAV_HEIGHT} r={NEW_NAV_HEIGHT / 2} color="rgba(255, 255, 255, 0.65)" />
-            )}
-            <RoundedRect x={useDerivedValue(() => activeBubbleX.value + CONTAINER_PADDING_H - 4)} y={(NEW_NAV_HEIGHT - BUBBLE_SIZE) / 2} width={100} height={BUBBLE_SIZE} r={BUBBLE_SIZE / 2} color="rgba(237, 237, 237, 1)" />
-          </Canvas>
-          <View style={{ zIndex: 2, flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+
+        {/* Shadow wrapper (overflow visible so shadow isn't clipped) */}
+        <View style={styles.navShadowWrapper}>
+          <LiquidGlassView
+            variant="regular"
+            interactive
+            cornerRadius={NEW_NAV_HEIGHT / 2}
+            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: CONTAINER_PADDING_H }}
+          >
+            {/* Active bubble indicator */}
+            <Canvas style={StyleSheet.absoluteFill}>
+              {Platform.OS !== 'ios' && (
+                <RoundedRect x={0} y={0} width={NEW_NAV_WIDTH} height={NEW_NAV_HEIGHT} r={NEW_NAV_HEIGHT / 2} color="rgba(255, 255, 255, 0.65)" />
+              )}
+              <RoundedRect x={useDerivedValue(() => activeBubbleX.value + CONTAINER_PADDING_H - 4)} y={(NEW_NAV_HEIGHT - BUBBLE_SIZE) / 2} width={TAB_WIDTH} height={BUBBLE_SIZE} r={BUBBLE_SIZE / 2} color={Platform.OS === 'ios' ? 'rgba(0,0,0,0.08)' : 'rgba(237,237,237,1)'} />
+            </Canvas>
             {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
             {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
             {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
-          </View>
+          </LiquidGlassView>
         </View>
-        <TouchableOpacity onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }} onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }} delayLongPress={250} disabled={isFabDisabled} activeOpacity={0.88} style={isFabDisabled ? styles.disabledButton : undefined}>
-          <View style={styles.glassFab}>
-            {Platform.OS === 'ios' && (
-              <LiquidGlassView variant="regular" interactive cornerRadius={25} style={StyleSheet.absoluteFill} />
-            )}
-            <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center', zIndex: 1 }]}>
+
+        {/* FAB shadow wrapper */}
+        <TouchableOpacity
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }}
+          onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }}
+          delayLongPress={250}
+          disabled={isFabDisabled}
+          activeOpacity={0.88}
+          style={isFabDisabled ? styles.disabledButton : undefined}
+        >
+          <View style={styles.fabShadowWrapper}>
+            <LiquidGlassView variant="regular" interactive cornerRadius={25} style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               <Ionicons name="add" size={30} color={isFabDisabled ? '#888' : '#1a1a1a'} />
-            </View>
+            </LiquidGlassView>
           </View>
         </TouchableOpacity>
+
       </View>
     </View>
   );

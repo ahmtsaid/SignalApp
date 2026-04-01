@@ -16,7 +16,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Canvas, center, RoundedRect } from '@shopify/react-native-skia';
 import { useDerivedValue } from 'react-native-reanimated';
 import Svg, { Defs, RadialGradient, LinearGradient as SvgLinearGradient, Rect, Stop, Circle } from 'react-native-svg';
-import { LiquidGlassView } from 'expo-liquid-glass';
+import { BlurView } from 'expo-blur';
+import { GlassView, GlassContainer, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -101,15 +102,65 @@ const styles = StyleSheet.create({
   
   bottomBarWrapper: { position: 'absolute', bottom: 40, left: 0, right: 0, alignItems: 'center', zIndex: 999 },
   glassContainerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  navShadowWrapper: { width: NEW_NAV_WIDTH, height: NEW_NAV_HEIGHT, borderRadius: NEW_NAV_HEIGHT / 2, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 5 },
-  fabShadowWrapper: { width: 50, height: 50, borderRadius: 25, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 20, elevation: 5 },
-  newNavContainer: { width: NEW_NAV_WIDTH, height: NEW_NAV_HEIGHT, borderRadius: NEW_NAV_HEIGHT / 2, overflow: 'hidden', backgroundColor: Platform.OS === 'ios' ? 'transparent' : 'rgba(246, 246, 246, 1)', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 15, elevation: 5, flexDirection: 'row', alignItems: 'center', paddingHorizontal: CONTAINER_PADDING_H, position: 'relative' },
+
+  // Nav pill
+  navShadowWrapper: {
+    width: NEW_NAV_WIDTH,
+    height: NEW_NAV_HEIGHT,
+    borderRadius: NEW_NAV_HEIGHT / 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  navActiveBubble: {
+    position: 'absolute',
+    top: (NEW_NAV_HEIGHT - BUBBLE_SIZE) / 2,
+    left: CONTAINER_PADDING_H - 4,
+    width: TAB_WIDTH,
+    height: BUBBLE_SIZE,
+    borderRadius: BUBBLE_SIZE / 2,
+    overflow: 'hidden',
+  },
+  navActiveBubbleHighlight: {
+    position: 'absolute',
+    top: 2,
+    left: 10,
+    right: 10,
+    height: 1,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,1)',
+  },
+  navTabsRow: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: CONTAINER_PADDING_H,
+  },
+
+  // FAB
+  fabShadowWrapper: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  fabIconWrapper: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
   navItem: { width: TAB_WIDTH, alignItems: 'center', justifyContent: 'center', height: '100%', zIndex: 2 },
   navItemContent: { alignItems: 'center', justifyContent: 'center', gap: 4 },
   navLabel: { fontFamily: 'HostGrotesk_500Medium', fontSize: 10, color: Colors.secondaryText },
-  navLabelActive: { color: 'black' },
-  activeIndicator: { position: 'absolute', top: (NEW_NAV_HEIGHT - BUBBLE_SIZE) / 2, height: BUBBLE_SIZE, width: TAB_WIDTH, borderRadius: BUBBLE_SIZE / 2, backgroundColor: 'rgba(237, 237, 237, 1)', zIndex: 1 },
-  glassFab: { width: 50, height: 50, borderRadius: 25, overflow: 'hidden', backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 15, elevation: 5, justifyContent: 'center', alignItems: 'center' },
   flowLines: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 20 },
   disabledButton: { opacity: 0.4 },
   
@@ -754,60 +805,144 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
     activeBubbleX.value = withTiming(targetX, { duration: 300 });
   }, [currentTab]);
 
+  const bubbleAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: activeBubbleX.value }],
+  }));
+
   const renderTab = (tabIndex: number, label: string, iconName: any, customIcon?: React.ReactNode) => {
     const isActive = currentTab === tabIndex;
     return (
-      <TouchableOpacity style={styles.navItem} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChangeTab(tabIndex); }} activeOpacity={0.7}>
+      <TouchableOpacity
+        style={styles.navItem}
+        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChangeTab(tabIndex); }}
+        activeOpacity={0.7}
+      >
         <View style={styles.navItemContent}>
-          {customIcon ? customIcon : <Ionicons name={iconName} size={18} color={isActive ? "black" : Colors.secondaryText} />}
-          <Text style={isActive ? styles.navLabel : styles.navLabel}>{label}</Text>
+          {customIcon ?? <Ionicons name={iconName} size={18} color={isActive ? '#1a1a1a' : Colors.secondaryText} />}
+          <Text style={[styles.navLabel, isActive && { color: '#1a1a1a' }]}>{label}</Text>
         </View>
       </TouchableOpacity>
     );
   };
 
+  const glassAvailable = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
+
   return (
     <View style={styles.bottomBarWrapper} pointerEvents="box-none">
-      <View style={styles.glassContainerRow}>
+      {glassAvailable ? (
+        /* ── Real Liquid Glass (iOS 26+) ── */
+        <GlassContainer spacing={12} style={styles.glassContainerRow}>
 
-        {/* Shadow wrapper (overflow visible so shadow isn't clipped) */}
-        <View style={styles.navShadowWrapper}>
-          <LiquidGlassView
-            variant="regular"
-            interactive
-            cornerRadius={NEW_NAV_HEIGHT / 2}
-            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: CONTAINER_PADDING_H }}
-          >
-            {/* Active bubble indicator */}
-            <Canvas style={StyleSheet.absoluteFill}>
-              {Platform.OS !== 'ios' && (
-                <RoundedRect x={0} y={0} width={NEW_NAV_WIDTH} height={NEW_NAV_HEIGHT} r={NEW_NAV_HEIGHT / 2} color="rgba(255, 255, 255, 0.65)" />
-              )}
-              <RoundedRect x={useDerivedValue(() => activeBubbleX.value + CONTAINER_PADDING_H - 4)} y={(NEW_NAV_HEIGHT - BUBBLE_SIZE) / 2} width={TAB_WIDTH} height={BUBBLE_SIZE} r={BUBBLE_SIZE / 2} color={Platform.OS === 'ios' ? 'rgba(0,0,0,0.08)' : 'rgba(237,237,237,1)'} />
-            </Canvas>
-            {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
-            {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
-            {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
-          </LiquidGlassView>
-        </View>
-
-        {/* FAB shadow wrapper */}
-        <TouchableOpacity
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }}
-          onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }}
-          delayLongPress={250}
-          disabled={isFabDisabled}
-          activeOpacity={0.88}
-          style={isFabDisabled ? styles.disabledButton : undefined}
-        >
-          <View style={styles.fabShadowWrapper}>
-            <LiquidGlassView variant="regular" interactive cornerRadius={25} style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              <Ionicons name="add" size={30} color={isFabDisabled ? '#888' : '#1a1a1a'} />
-            </LiquidGlassView>
+          {/* Nav pill */}
+          <View style={styles.navShadowWrapper}>
+            {/* Full pill background glass */}
+            <GlassView
+              style={[StyleSheet.absoluteFill, { borderRadius: NEW_NAV_HEIGHT / 2 }]}
+              glassEffectStyle="regular"
+              colorScheme="light"
+            />
+            {/* Active bubble glass — morphs with the pill */}
+            <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
+              <GlassView
+                style={[StyleSheet.absoluteFill, { borderRadius: BUBBLE_SIZE / 2 }]}
+                glassEffectStyle="regular"
+                isInteractive
+                colorScheme="light"
+              />
+            </Animated.View>
+            {/* Tab buttons on top */}
+            <View style={styles.navTabsRow}>
+              {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
+              {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
+              {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
+            </View>
           </View>
-        </TouchableOpacity>
 
-      </View>
+          {/* FAB */}
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }}
+            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }}
+            delayLongPress={250}
+            disabled={isFabDisabled}
+            activeOpacity={0.85}
+            style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton]}
+          >
+            <GlassView
+              style={[StyleSheet.absoluteFill, { borderRadius: 25 }]}
+              glassEffectStyle="regular"
+              isInteractive
+              colorScheme="light"
+            />
+            <View style={styles.fabIconWrapper}>
+              <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
+            </View>
+          </TouchableOpacity>
+
+        </GlassContainer>
+      ) : (
+        /* ── BlurView fallback (Expo Go / iOS < 26) ── */
+        <View style={styles.glassContainerRow}>
+
+          {/* Nav pill */}
+          <View style={styles.navShadowWrapper}>
+            <BlurView
+              intensity={40}
+              tint="systemChromeMaterialLight"
+              style={[StyleSheet.absoluteFill, { borderRadius: NEW_NAV_HEIGHT / 2, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.6)' }]}
+            >
+              <LinearGradient
+                colors={['rgba(255,255,255,0.45)', 'rgba(255,255,255,0)']}
+                start={[0.5, 0]}
+                end={[0.5, 0.5]}
+                style={[StyleSheet.absoluteFill, { borderRadius: NEW_NAV_HEIGHT / 2 }]}
+                pointerEvents="none"
+              />
+            </BlurView>
+            <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
+              <LinearGradient
+                colors={['rgba(255,255,255,0.96)', 'rgba(255,255,255,0.62)']}
+                start={[0.5, 0]}
+                end={[0.5, 1]}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.navActiveBubbleHighlight} />
+            </Animated.View>
+            <View style={styles.navTabsRow}>
+              {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
+              {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
+              {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
+            </View>
+          </View>
+
+          {/* FAB */}
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }}
+            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }}
+            delayLongPress={250}
+            disabled={isFabDisabled}
+            activeOpacity={0.85}
+            style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton]}
+          >
+            <BlurView
+              intensity={40}
+              tint="systemChromeMaterialLight"
+              style={[StyleSheet.absoluteFill, { borderRadius: 25, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.6)' }]}
+            >
+              <LinearGradient
+                colors={['rgba(255,255,255,0.45)', 'rgba(255,255,255,0)']}
+                start={[0.5, 0]}
+                end={[0.5, 0.6]}
+                style={[StyleSheet.absoluteFill, { borderRadius: 25 }]}
+                pointerEvents="none"
+              />
+            </BlurView>
+            <View style={styles.fabIconWrapper}>
+              <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
+            </View>
+          </TouchableOpacity>
+
+        </View>
+      )}
     </View>
   );
 }

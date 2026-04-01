@@ -801,7 +801,7 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
 
   useEffect(() => {
     const targetX = currentTab * TAB_WIDTH;
-    activeBubbleX.value = withSpring(targetX, { damping: 22, stiffness: 220 });
+    activeBubbleX.value = withSpring(targetX, { damping: 48, stiffness: 280 });
     currentTabSV.value = currentTab;
   }, [currentTab]);
 
@@ -818,7 +818,7 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
     .onEnd((e) => {
       const startX = currentTabSV.value * TAB_WIDTH;
       const snapped = Math.round(clamp((startX + e.translationX) / TAB_WIDTH, 0, TAB_COUNT - 1));
-      activeBubbleX.value = withSpring(snapped * TAB_WIDTH, { damping: 22, stiffness: 220 });
+      activeBubbleX.value = withSpring(snapped * TAB_WIDTH, { damping: 48, stiffness: 280 });
       runOnJS(onChangeTab)(snapped);
       runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
     });

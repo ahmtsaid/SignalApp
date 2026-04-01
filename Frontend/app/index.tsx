@@ -796,21 +796,30 @@ function SignalsIndicator({ isActive }: { isActive: boolean }) {
 
 function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger, onSheetTrigger, homeScrollX }: any) {
   const activeBubbleX = useSharedValue(0);
-
+  const bubbleScale = useSharedValue(1);
   const currentTabSV = useSharedValue(currentTab);
 
+  // Apple spring config — snappy with subtle natural bounce
+  const SPRING = { damping: 26, stiffness: 340, mass: 0.75 };
+
   useEffect(() => {
-    const targetX = currentTab * TAB_WIDTH;
-    activeBubbleX.value = withSpring(targetX, { damping: 48, stiffness: 280 });
+    activeBubbleX.value = withSpring(currentTab * TAB_WIDTH, SPRING);
     currentTabSV.value = currentTab;
   }, [currentTab]);
 
   const bubbleAnimStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: activeBubbleX.value }],
+    transform: [
+      { translateX: activeBubbleX.value },
+      { scale: bubbleScale.value },
+    ],
   }));
 
+  // Drag gesture — bubble follows finger, snaps on release
   const dragGesture = Gesture.Pan()
     .activeOffsetX([-8, 8])
+    .onBegin(() => {
+      bubbleScale.value = withSpring(1.08, { damping: 20, stiffness: 500 });
+    })
     .onUpdate((e) => {
       const startX = currentTabSV.value * TAB_WIDTH;
       activeBubbleX.value = clamp(startX + e.translationX, 0, (TAB_COUNT - 1) * TAB_WIDTH);
@@ -818,7 +827,8 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
     .onEnd((e) => {
       const startX = currentTabSV.value * TAB_WIDTH;
       const snapped = Math.round(clamp((startX + e.translationX) / TAB_WIDTH, 0, TAB_COUNT - 1));
-      activeBubbleX.value = withSpring(snapped * TAB_WIDTH, { damping: 48, stiffness: 280 });
+      activeBubbleX.value = withSpring(snapped * TAB_WIDTH, SPRING);
+      bubbleScale.value = withSpring(1.0, SPRING);
       runOnJS(onChangeTab)(snapped);
       runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
     });
@@ -829,7 +839,15 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
       <TouchableOpacity
         style={styles.navItem}
         onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChangeTab(tabIndex); }}
-        activeOpacity={0.7}
+        onPressIn={() => {
+          // Apple squish: scale down on press
+          bubbleScale.value = withSpring(0.88, { damping: 18, stiffness: 600 });
+        }}
+        onPressOut={() => {
+          // Spring back with slight overshoot — Apple's signature feel
+          bubbleScale.value = withSpring(1.0, SPRING);
+        }}
+        activeOpacity={1}
       >
         <View style={styles.navItemContent}>
           {customIcon ?? <Ionicons name={iconName} size={18} color={isActive ? '#1a1a1a' : Colors.secondaryText} />}

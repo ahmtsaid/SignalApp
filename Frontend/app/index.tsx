@@ -833,22 +833,21 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
         /* ── Real Liquid Glass (iOS 26+) ── */
         <GlassContainer spacing={12} style={styles.glassContainerRow}>
 
-          {/* Nav pill */}
-          <View style={styles.navShadowWrapper}>
-            {/* Full pill background glass */}
-            <GlassView
-              style={[StyleSheet.absoluteFill, { borderRadius: NEW_NAV_HEIGHT / 2 }]}
-              glassEffectStyle="regular"
-              colorScheme="light"
-            />
-            {/* Active bubble glass — morphs with the pill */}
+          {/* Nav pill — GlassView is the pill itself, children render inside */}
+          <GlassView
+            style={styles.navShadowWrapper}
+            glassEffectStyle="regular"
+            colorScheme="light"
+          >
+            {/* Active bubble — white gradient so it's visible against the glass */}
             <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
-              <GlassView
-                style={[StyleSheet.absoluteFill, { borderRadius: BUBBLE_SIZE / 2 }]}
-                glassEffectStyle="regular"
-                isInteractive
-                colorScheme="light"
+              <LinearGradient
+                colors={['rgba(255,255,255,0.92)', 'rgba(255,255,255,0.58)']}
+                start={[0.5, 0]}
+                end={[0.5, 1]}
+                style={StyleSheet.absoluteFill}
               />
+              <View style={styles.navActiveBubbleHighlight} />
             </Animated.View>
             {/* Tab buttons on top */}
             <View style={styles.navTabsRow}>
@@ -856,7 +855,7 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
               {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
               {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
             </View>
-          </View>
+          </GlassView>
 
           {/* FAB */}
           <TouchableOpacity
@@ -865,17 +864,17 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
             delayLongPress={250}
             disabled={isFabDisabled}
             activeOpacity={0.85}
-            style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton]}
           >
             <GlassView
-              style={[StyleSheet.absoluteFill, { borderRadius: 25 }]}
+              style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton]}
               glassEffectStyle="regular"
               isInteractive
               colorScheme="light"
-            />
-            <View style={styles.fabIconWrapper}>
-              <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
-            </View>
+            >
+              <View style={styles.fabIconWrapper}>
+                <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
+              </View>
+            </GlassView>
           </TouchableOpacity>
 
         </GlassContainer>

@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
   navActiveBubble: {
     position: 'absolute',
     top: (NEW_NAV_HEIGHT - BUBBLE_SIZE) / 2,
-    left: CONTAINER_PADDING_H - 4,
+    left: CONTAINER_PADDING_H,
     width: TAB_WIDTH,
     height: BUBBLE_SIZE,
     borderRadius: BUBBLE_SIZE / 2,
@@ -797,17 +797,31 @@ function SignalsIndicator({ isActive }: { isActive: boolean }) {
 function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger, onSheetTrigger, homeScrollX }: any) {
   const activeBubbleX = useSharedValue(0);
 
+  const currentTabSV = useSharedValue(currentTab);
+
   useEffect(() => {
-    let targetX = 0;
-    if (currentTab === TAB_FLOW) targetX = 0;
-    else if (currentTab === TAB_TRACK) targetX = 1 * TAB_WIDTH;
-    else if (currentTab === TAB_SIGNALS) targetX = 2 * TAB_WIDTH;
-    activeBubbleX.value = withTiming(targetX, { duration: 300 });
+    const targetX = currentTab * TAB_WIDTH;
+    activeBubbleX.value = withSpring(targetX, { damping: 22, stiffness: 220 });
+    currentTabSV.value = currentTab;
   }, [currentTab]);
 
   const bubbleAnimStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: activeBubbleX.value }],
   }));
+
+  const dragGesture = Gesture.Pan()
+    .activeOffsetX([-8, 8])
+    .onUpdate((e) => {
+      const startX = currentTabSV.value * TAB_WIDTH;
+      activeBubbleX.value = clamp(startX + e.translationX, 0, (TAB_COUNT - 1) * TAB_WIDTH);
+    })
+    .onEnd((e) => {
+      const startX = currentTabSV.value * TAB_WIDTH;
+      const snapped = Math.round(clamp((startX + e.translationX) / TAB_WIDTH, 0, TAB_COUNT - 1));
+      activeBubbleX.value = withSpring(snapped * TAB_WIDTH, { damping: 22, stiffness: 220 });
+      runOnJS(onChangeTab)(snapped);
+      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
+    });
 
   const renderTab = (tabIndex: number, label: string, iconName: any, customIcon?: React.ReactNode) => {
     const isActive = currentTab === tabIndex;
@@ -849,12 +863,14 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
               />
               <View style={styles.navActiveBubbleHighlight} />
             </Animated.View>
-            {/* Tab buttons on top */}
-            <View style={styles.navTabsRow}>
-              {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
-              {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
-              {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
-            </View>
+            {/* Tab buttons — wrapped in drag gesture */}
+            <GestureDetector gesture={dragGesture}>
+              <View style={styles.navTabsRow}>
+                {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
+                {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
+                {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
+              </View>
+            </GestureDetector>
           </GlassView>
 
           {/* FAB */}
@@ -906,11 +922,13 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
               />
               <View style={styles.navActiveBubbleHighlight} />
             </Animated.View>
-            <View style={styles.navTabsRow}>
-              {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
-              {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
-              {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
-            </View>
+            <GestureDetector gesture={dragGesture}>
+              <View style={styles.navTabsRow}>
+                {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
+                {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
+                {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
+              </View>
+            </GestureDetector>
           </View>
 
           {/* FAB */}

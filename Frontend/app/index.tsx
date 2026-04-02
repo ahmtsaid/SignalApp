@@ -4,7 +4,7 @@ import { Animated as RNAnimated, StyleSheet, Text, View, TouchableOpacity, SafeA
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts, HostGrotesk_500Medium, HostGrotesk_400Regular, HostGrotesk_700Bold } from '@expo-google-fonts/host-grotesk';
 import * as SplashScreen from 'expo-splash-screen';
-import { GestureHandlerRootView, Swipeable, GestureDetector, Gesture } from 'react-native-gesture-handler';
+import { GestureHandlerRootView, Swipeable, GestureDetector, Gesture, ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import Colors from '../src/constants/Colors';
 import * as Haptics from 'expo-haptics';
@@ -29,6 +29,10 @@ if (Platform.OS === 'android') {
 
 // 🌟 AKILLI ŞALTER: Uygulama ilk açıldığında true olur.
 let isFirstLaunch = true;
+
+const EditModeContext = React.createContext<boolean>(false);
+const EditModeSetterContext = React.createContext<(v: boolean) => void>(() => {});
+const AnimatedGHScrollView = Animated.createAnimatedComponent(GHScrollView);
 
 // =====================================================================
 // 1. SABİTLER & TİPLER
@@ -415,14 +419,28 @@ function InputHeader({ isAddingThisDay, taskText, setTaskText, handleSubmitTask,
   );
 }
 
-function TaskItemRow({ item, drag, isActive, isEditMode, setIsEditMode, isAddingTask, actualDelete, isFirst, isLast, onSwipeStart, swiperRef, onOpenDetail }: any) {
+function TaskItemRow({ item, drag, isActive, isAddingTask, actualDelete, isFirst, isLast, onSwipeStart, swiperRef, onOpenDetail }: any) {
   const heightMultiplier = useSharedValue(1);
   const translateX = useSharedValue(0);
-  const [isSwiped, setIsSwiped] = useState(false); 
+  const topR = useSharedValue(isFirst ? 18 : 0);
+  const bottomR = useSharedValue(isLast ? 18 : 0);
+  const isEditMode = React.useContext(EditModeContext);
+  const setIsEditMode = React.useContext(EditModeSetterContext);
+  const [isSwiped, setIsSwiped] = useState(false);
+
+  useEffect(() => {
+    topR.value = withTiming((isActive || isSwiped) ? 18 : (isFirst ? 18 : 0), { duration: 260 });
+    bottomR.value = withTiming((isActive || isSwiped) ? 18 : (isLast ? 18 : 0), { duration: 260 });
+  }, [isActive, isFirst, isLast, isSwiped]);
 
   const handleDelete = () => {
     translateX.value = withTiming(-SCREEN_WIDTH, { duration: 250 }, () => {
-      heightMultiplier.value = withTiming(0, { duration: 300 }, (finished) => { if (finished) runOnJS(actualDelete)(item.id); });
+      heightMultiplier.value = withTiming(0, { duration: 300 }, (finished) => {
+        if (finished) {
+          runOnJS(actualDelete)(item.id);
+          runOnJS(setIsEditMode)(false);
+        }
+      });
     });
   };
 
@@ -431,9 +449,15 @@ function TaskItemRow({ item, drag, isActive, isEditMode, setIsEditMode, isAdding
   }));
   
   const animatedBgStyle = useAnimatedStyle(() => {
-    const tr = (isActive || isSwiped || heightMultiplier.value < 1) ? 18 : (isFirst ? 18 : 0);
-    const br = (isActive || isSwiped || heightMultiplier.value < 1) ? 18 : (isLast ? 18 : 0);
-    return { backgroundColor: withTiming(isActive ? '#FDFDFD' : '#FFFFFF', { duration: 200 }), transform: [{ translateX: translateX.value }], opacity: withTiming(isAddingTask && !isActive ? 0.3 : 1, { duration: 200 }), borderTopLeftRadius: tr, borderTopRightRadius: tr, borderBottomLeftRadius: br, borderBottomRightRadius: br };
+    return {
+      backgroundColor: withTiming(isActive ? '#FDFDFD' : '#FFFFFF', { duration: 200 }),
+      transform: [{ translateX: translateX.value }],
+      opacity: withTiming(isAddingTask && !isActive ? 0.3 : 1, { duration: 200 }),
+      borderTopLeftRadius: topR.value,
+      borderTopRightRadius: topR.value,
+      borderBottomLeftRadius: bottomR.value,
+      borderBottomRightRadius: bottomR.value,
+    };
   });
 
   const renderRightActions = (progress: any, dragX: any) => {
@@ -455,7 +479,7 @@ function TaskItemRow({ item, drag, isActive, isEditMode, setIsEditMode, isAdding
         <Swipeable ref={swiperRef} onSwipeableWillOpen={() => { runOnJS(onSwipeStart)(item.id); setIsSwiped(true); }} onSwipeableWillClose={() => setIsSwiped(false)} renderRightActions={renderRightActions} friction={1.5} overshootFriction={8} enabled={!isActive && !isEditMode && !isAddingTask} containerStyle={{ overflow: 'visible' }}>
           <Animated.View style={[animatedBgStyle, isActive ? styles.activeTaskShadow : null]}>
             <TouchableOpacity 
-              onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setIsEditMode(true); drag(); }} 
+              onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSwipeStart(""); setIsEditMode(true); drag(); }} 
               onPress={() => { if (!isEditMode && !isAddingTask) runOnJS(onOpenDetail)(item, false); }} 
               delayLongPress={150} 
               activeOpacity={0.7} 
@@ -476,7 +500,7 @@ function TaskItemRow({ item, drag, isActive, isEditMode, setIsEditMode, isAdding
                 </View>
               </View>
             </TouchableOpacity>
-            {!isLast && !isActive && !isSwiped && heightMultiplier.value === 1 ? <View style={styles.itemDivider} /> : null}
+            {!isLast && !isSwiped ? <View style={styles.itemDivider} /> : null}
           </Animated.View>
         </Swipeable>
       </ScaleDecorator>
@@ -1123,7 +1147,7 @@ function SignalDetailSheet({ visible, onClose, task, onUpdateTask, isReadOnly }:
                     >
                        <Text style={{ fontFamily: 'HostGrotesk_500Medium', fontSize: 13, color: localTask.status === v ? '#FFFFFF' : '#999' }}>{v === 1 ? 'Done' : v === 0 ? 'Void' : getStatusText(v)}</Text>
                     </TouchableOpacity>
-                    {i < stateOptions.length - 1 && localTask.status === -1 ? <View style={styles.stateSeparator} /> : null}
+                    {i < stateOptions.length - 1 ? <View style={[styles.stateSeparator, localTask.status !== -1 && { opacity: 0 }]} /> : null}
                   </React.Fragment>
                 ))}
               </View>
@@ -1571,9 +1595,9 @@ function MainArchiveScreen({ allTasks, onOpenDetail }: { allTasks: TaskItem[], o
   );
 }
 
-function FlowHomeScreen({ allTasks, setAllTasks, isAddingGlobal, setIsAddingGlobal, currentDayOffset, setCurrentDayOffset, homeScrollX, onOpenDetail }: any) {
+const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTasks, isAddingGlobal, setIsAddingGlobal, currentDayOffset, setCurrentDayOffset, homeScrollX, onOpenDetail }: any) {
   const [taskText, setTaskText] = useState('');
-  const [isEditMode, setIsEditMode] = useState(false);
+  const setIsEditMode = React.useContext(EditModeSetterContext);
   
   const flatListRef = useRef<any>(null);
   const rowRefs = useRef<Map<string, any>>(new Map());
@@ -1616,11 +1640,32 @@ function FlowHomeScreen({ allTasks, setAllTasks, isAddingGlobal, setIsAddingGlob
     const daysData = [-1, 0, 1]; const newOffset = daysData[index];
     runOnJS(setCurrentDayOffset)(newOffset);
     setIsAddingGlobal(false); 
-    if (isEditMode) { setIsEditMode(false); Keyboard.dismiss(); }
+    setIsEditMode(false); Keyboard.dismiss();
     closeAllSwipeables();
   };
 
-  useEffect(() => { setTimeout(() => { homeScrollX.value = SCREEN_WIDTH; flatListRef.current?.scrollToIndex({ index: 1, animated: false }); }, 50); }, []);
+  const navigateToPage = (index: number) => {
+    flatListRef.current?.scrollTo({ x: index * SCREEN_WIDTH, animated: true });
+    handlePageChange(index);
+  };
+
+  const pageNavGesture = Gesture.Pan()
+    .activeOffsetX([-12, 12])
+    .failOffsetY([-12, 12])
+    .onEnd((e) => {
+      const currentIndex = Math.round(homeScrollX.value / SCREEN_WIDTH);
+      let targetIndex = currentIndex;
+      if (e.velocityX < -400 && e.translationX < -40) {
+        targetIndex = Math.min(currentIndex + 1, 2);
+      } else if (e.velocityX > 400 && e.translationX > 40) {
+        targetIndex = Math.max(currentIndex - 1, 0);
+      }
+      if (targetIndex !== currentIndex) {
+        runOnJS(navigateToPage)(targetIndex);
+      }
+    });
+
+  useEffect(() => { setTimeout(() => { homeScrollX.value = SCREEN_WIDTH; flatListRef.current?.scrollTo({ x: SCREEN_WIDTH, animated: false }); }, 50); }, []);
   useEffect(() => { const listener = Keyboard.addListener('keyboardDidHide', () => { if (taskText.trim() === '') { setIsAddingGlobal(false); } }); return () => listener.remove(); }, [taskText]);
   
   useEffect(() => { 
@@ -1659,7 +1704,7 @@ function FlowHomeScreen({ allTasks, setAllTasks, isAddingGlobal, setIsAddingGlob
     };
 
     return (
-      <TaskItemRow item={item} drag={drag} isActive={isActive} isEditMode={isEditMode} isAddingTask={isAddingGlobal} actualDelete={deleteTaskFromState} setIsEditMode={setIsEditMode} isFirst={isFirst} isLast={isLast} onSwipeStart={onSwipeStart} swiperRef={(el: any) => rowRefs.current.set(item.id, el)} onOpenDetail={handleOpenDetailWithClose} />
+      <TaskItemRow item={item} drag={drag} isActive={isActive} isAddingTask={isAddingGlobal} actualDelete={deleteTaskFromState} isFirst={isFirst} isLast={isLast} onSwipeStart={onSwipeStart} swiperRef={(el: any) => rowRefs.current.set(item.id, el)} onOpenDetail={handleOpenDetailWithClose} />
     );
   };
 
@@ -1700,11 +1745,11 @@ function FlowHomeScreen({ allTasks, setAllTasks, isAddingGlobal, setIsAddingGlob
             </View>
           }
           data={dayTasks}
-          onDragEnd={({ data }: { data: TaskItem[] }) => { const others = allTasks.filter((t: TaskItem) => t.date !== pageDateIso); setIsEditMode(false);setAllTasks([...others, ...data]); }}
+          onDragEnd={({ data }: { data: TaskItem[] }) => { const others = allTasks.filter((t: TaskItem) => t.date !== pageDateIso); setIsEditMode(true); setAllTasks([...others, ...data]); }}
           keyExtractor={(item: TaskItem) => item.id}
           renderItem={renderTaskItem}
           keyboardShouldPersistTaps="handled"
-          activationDistance={20}
+          activationDistance={0}
           onScrollBeginDrag={closeAllSwipeables} 
         />
       </View>
@@ -1718,18 +1763,27 @@ function FlowHomeScreen({ allTasks, setAllTasks, isAddingGlobal, setIsAddingGlob
         <View style={styles.header}>
           <View style={styles.dotsContainer}>{[-1, 0, 1].map((_, i) => (<AnimatedDot key={i.toString()} index={i} scrollX={homeScrollX} dotsOpacitySV={dotsOpacitySV} />))}</View>
         </View>
-        <Animated.FlatList 
-          ref={flatListRef} data={[-1, 0, 1]} renderItem={renderDayPage} horizontal pagingEnabled showsHorizontalScrollIndicator={false} 
-          keyExtractor={(item: number) => item.toString()} onScroll={onScroll} scrollEventThrottle={16} 
-          onMomentumScrollEnd={(e: any) => { const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH); runOnJS(handlePageChange)(index); }} 
-          getItemLayout={(_: any, index: number) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * index, index })} initialScrollIndex={1} 
-        />
+        <AnimatedGHScrollView
+          ref={flatListRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          style={{ flex: 1 }}
+          onMomentumScrollEnd={(e: any) => { const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH); runOnJS(handlePageChange)(index); }}
+        >
+          {([-1, 0, 1] as number[]).map((dayOffset: number) => (
+            <React.Fragment key={dayOffset}>{renderDayPage({ item: dayOffset })}</React.Fragment>
+          ))}
+        </AnimatedGHScrollView>
       </SafeAreaView>
     </Pressable>
   );
-}
+});
 
 export default function App() {
+  const [isEditMode, setIsEditMode] = React.useState(false);
   const [currentScreen, setCurrentScreen] = useState<number>(TAB_FLOW);
   const [allTasks, setAllTasks] = useState<TaskItem[]>([]);
   const [isAddingGlobal, setIsAddingGlobal] = useState(false);
@@ -1781,6 +1835,8 @@ export default function App() {
   };
 
   return (
+    <EditModeSetterContext.Provider value={setIsEditMode}>
+    <EditModeContext.Provider value={isEditMode}>
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: BACKGROUND_ALT }}>
       
       <Animated.View style={screensStyle}>
@@ -1820,5 +1876,7 @@ export default function App() {
       />
 
     </GestureHandlerRootView>
+    </EditModeContext.Provider>
+    </EditModeSetterContext.Provider>
   );
 }

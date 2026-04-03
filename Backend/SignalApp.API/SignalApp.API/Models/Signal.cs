@@ -1,22 +1,27 @@
-﻿using System.Globalization;
-
 namespace SignalApp.API.Models
 {
     public class Signal
     {
-        // Her satırın eşsiz bir numarası olmasını sağlar(Primary Key)
         public int Id { get; set; }
 
-        //Sinyalin adını giriyoruz
+        // Supabase auth user UUID — hangi kullanıcıya ait
+        public string UserId { get; set; } = string.Empty;
+
         public string Title { get; set; } = string.Empty;
 
-        //Açıklama(İsteğe bağlı detay)
         public string Description { get; set; } = string.Empty;
 
-        //Hedef puan veya sıklık ( mesela 100 üzerinden 80)
         public int TargetValue { get; set; }
 
-        //Ne zaman oluşturuldu? (UTC saatiyle)
         public DateTime CreateAt { get; set; } = DateTime.UtcNow;
+
+        // Hangi güne ait? (YYYY-MM-DD)
+        public string Date { get; set; } = string.Empty;
+
+        // Günlük tamamlanma durumu: -1=girilmedi, 0-100=yüzde
+        public int Status { get; set; } = -1;
+
+        // Kullanıcının belirlediği sıralama
+        public int SortOrder { get; set; } = 0;
     }
 }

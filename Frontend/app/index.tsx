@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Redirect } from 'expo-router';
 import { Animated as RNAnimated, StyleSheet, Text, View, TouchableOpacity, SafeAreaView, Platform, StatusBar, TextInput, Keyboard, UIManager, Pressable, Dimensions, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { useFonts, HostGrotesk_500Medium, HostGrotesk_400Regular, HostGrotesk_700Bold } from '@expo-google-fonts/host-grotesk';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView, Swipeable, GestureDetector, Gesture } from 'react-native-gesture-handler';
-import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import Colors from '../src/constants/Colors';
 import * as Haptics from 'expo-haptics';
 import Animated, { SharedValue, useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolation, runOnJS, withTiming, withSpring, clamp, LinearTransition, withDelay, interpolateColor } from 'react-native-reanimated';
@@ -32,6 +33,20 @@ let isFirstLaunch = true;
 
 const EditModeContext = React.createContext<boolean>(false);
 const EditModeSetterContext = React.createContext<(v: boolean) => void>(() => {});
+
+// API fonksiyonları için context — prop drilling'i önler
+interface ApiContextType {
+  createSignal:   (task: Partial<TaskItem>) => Promise<void>;
+  deleteSignal:   (id: string) => Promise<void>;
+  updateSignal:   (id: string, updates: Partial<TaskItem>) => Promise<void>;
+  reorderSignals: (orderedIds: string[]) => Promise<void>;
+}
+const ApiContext = React.createContext<ApiContextType>({
+  createSignal:   async () => {},
+  deleteSignal:   async () => {},
+  updateSignal:   async () => {},
+  reorderSignals: async () => {},
+});
 
 
 // =====================================================================
@@ -120,21 +135,27 @@ const styles = StyleSheet.create({
   },
   navActiveBubble: {
     position: 'absolute',
-    top: (NEW_NAV_HEIGHT - BUBBLE_SIZE) / 2,
+    top: 4,
     left: CONTAINER_PADDING_H,
     width: TAB_WIDTH,
-    height: BUBBLE_SIZE,
-    borderRadius: BUBBLE_SIZE / 2,
+    height: NEW_NAV_HEIGHT - 8,
+    borderRadius: 18,
     overflow: 'hidden',
+    // SVG drop shadow: dy=8, blur=20, opacity=0.12
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.10,
+    shadowRadius: 12,
+    elevation: 5,
   },
   navActiveBubbleHighlight: {
     position: 'absolute',
-    top: 2,
-    left: 10,
-    right: 10,
+    top: 1,
+    left: 12,
+    right: 12,
     height: 1,
     borderRadius: 1,
-    backgroundColor: 'rgba(255,255,255,1)',
+    backgroundColor: 'rgba(255,255,255,0.9)',
   },
   navTabsRow: {
     position: 'absolute',
@@ -333,39 +354,57 @@ function ProgressBarSegment({ fillAmount }: { fillAmount: number }) {
 }
 
 function AnimatedProgressSection({ srValue, totalStatus, length }: any) {
-  const barHeightSV = useSharedValue(length > 0 ? 1 : 0);
-  const textOpacitySV = useSharedValue(length > 0 ? 1 : 0);
+  const show = length > 0;
+  const contH  = useSharedValue(show ? 60 : 0);
+  const contMB = useSharedValue(show ? 24 : 0);
+  const textTY = useSharedValue(show ? 0 : -10);
+  const textOp = useSharedValue(show ? 1 : 0);
+  const barTY  = useSharedValue(show ? 0 : -10);
+  const barOp  = useSharedValue(show ? 1 : 0);
 
   useEffect(() => {
-    if (length > 0) {
-      barHeightSV.value = withTiming(1, { duration: 350 });
-      textOpacitySV.value = withDelay(200, withTiming(1, { duration: 300 }));
+    if (show) {
+      contH.value  = withTiming(60, { duration: 320 });
+      contMB.value = withTiming(24, { duration: 320 });
+      // Text slides down first
+      textTY.value = withTiming(0, { duration: 260 });
+      textOp.value = withTiming(1, { duration: 260 });
+      // Bar slides down 120ms after text
+      barTY.value  = withDelay(120, withTiming(0, { duration: 260 }));
+      barOp.value  = withDelay(120, withTiming(1, { duration: 260 }));
     } else {
-      barHeightSV.value = withTiming(0, { duration: 300 });
-      textOpacitySV.value = withTiming(0, { duration: 300 });
+      contH.value  = withTiming(0, { duration: 260 });
+      contMB.value = withTiming(0, { duration: 260 });
+      textOp.value = withTiming(0, { duration: 180 });
+      barOp.value  = withTiming(0, { duration: 180 });
     }
-  }, [length]);
+  }, [show]);
 
-  const containerStyle = useAnimatedStyle(() => ({
-    height: interpolate(barHeightSV.value, [0, 1], [0, 60]),
-    marginBottom: interpolate(barHeightSV.value, [0, 1], [0, 24]),
-    overflow: 'hidden', 
-    justifyContent: 'flex-end'
+  const contStyle = useAnimatedStyle(() => ({
+    height: contH.value,
+    marginBottom: contMB.value,
+    overflow: 'hidden',
+  }));
+  const textStyle = useAnimatedStyle(() => ({
+    opacity: textOp.value,
+    transform: [{ translateY: textTY.value }],
+  }));
+  const barStyle = useAnimatedStyle(() => ({
+    opacity: barOp.value,
+    transform: [{ translateY: barTY.value }],
   }));
 
-  const opacityStyle = useAnimatedStyle(() => ({ opacity: textOpacitySV.value }));
-
   return (
-    <Animated.View style={[styles.progressSection, containerStyle]}>
-      <Animated.View style={[styles.progressHeaderRow, opacityStyle]}>
+    <Animated.View style={[styles.progressSection, contStyle]}>
+      <Animated.View style={[styles.progressHeaderRow, textStyle]}>
         <Text style={styles.progressLabelText}>Signal ratio progress bar</Text>
         <Text style={styles.progressValueText}>%{srValue.toString()}</Text>
       </Animated.View>
-      <View style={styles.progressBarRow}>
+      <Animated.View style={[styles.progressBarRow, barStyle]}>
         {Array.from({ length: Math.max(1, length) }).map((_, i) => (
           <ProgressBarSegment key={`seg-${i}`} fillAmount={Math.min(1, Math.max(0, totalStatus - i))} />
         ))}
-      </View>
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -419,19 +458,22 @@ function InputHeader({ isAddingThisDay, taskText, setTaskText, handleSubmitTask,
   );
 }
 
-function TaskItemRow({ item, drag, isActive, isAddingTask, actualDelete, isFirst, isLast, onSwipeStart, swiperRef, onOpenDetail }: any) {
+function _TaskItemRow_unused({ item, drag, isActive, isAddingTask, actualDelete, isFirst, isLast, onSwipeStart, swiperRef, onOpenDetail }: any) {
   const heightMultiplier = useSharedValue(1);
   const translateX = useSharedValue(0);
   const topR = useSharedValue(isFirst ? 18 : 0);
   const bottomR = useSharedValue(isLast ? 18 : 0);
+  const editModeSV = useSharedValue(0);
   const isEditMode = React.useContext(EditModeContext);
   const setIsEditMode = React.useContext(EditModeSetterContext);
   const [isSwiped, setIsSwiped] = useState(false);
 
   useEffect(() => {
-    topR.value = withTiming((isActive || isSwiped) ? 18 : (isFirst ? 18 : 0), { duration: 260 });
-    bottomR.value = withTiming((isActive || isSwiped) ? 18 : (isLast ? 18 : 0), { duration: 260 });
-  }, [isActive, isFirst, isLast, isSwiped]);
+    const inEditOrActive = isEditMode || isActive || isSwiped;
+    topR.value = withTiming(inEditOrActive ? 18 : (isFirst ? 18 : 0), { duration: 300 });
+    bottomR.value = withTiming(inEditOrActive ? 18 : (isLast ? 18 : 0), { duration: 300 });
+    editModeSV.value = withTiming(isEditMode ? 1 : 0, { duration: 300 });
+  }, [isEditMode, isActive, isFirst, isLast, isSwiped]);
 
   const handleDelete = () => {
     translateX.value = withTiming(-SCREEN_WIDTH, { duration: 250 }, () => {
@@ -445,7 +487,11 @@ function TaskItemRow({ item, drag, isActive, isAddingTask, actualDelete, isFirst
   };
 
   const animatedRowStyle = useAnimatedStyle(() => ({
-    height: heightMultiplier.value < 1 ? 52 * heightMultiplier.value : undefined, marginHorizontal: 16, overflow: heightMultiplier.value < 1 ? 'hidden' : 'visible', zIndex: isActive ? 999 : 1,
+    height: heightMultiplier.value < 1 ? 52 * heightMultiplier.value : undefined,
+    marginHorizontal: 16,
+    marginBottom: editModeSV.value * 8,
+    overflow: heightMultiplier.value < 1 ? 'hidden' : 'visible',
+    zIndex: isActive ? 999 : 1,
   }));
 
   const animatedBgStyle = useAnimatedStyle(() => ({
@@ -473,11 +519,11 @@ function TaskItemRow({ item, drag, isActive, isAddingTask, actualDelete, isFirst
 
   return (
     <Animated.View style={animatedRowStyle}>
-      <ScaleDecorator activeScale={1.03}>
+      <View>
         <Swipeable ref={swiperRef} onSwipeableWillOpen={() => { runOnJS(onSwipeStart)(item.id); setIsSwiped(true); }} onSwipeableWillClose={() => setIsSwiped(false)} renderRightActions={renderRightActions} friction={1.5} overshootFriction={8} enabled={!isActive && !isEditMode && !isAddingTask} containerStyle={{ overflow: 'visible' }}>
           <Animated.View style={[animatedBgStyle, isActive ? styles.activeTaskShadow : null]}>
             <TouchableOpacity
-              onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSwipeStart(""); setIsEditMode(true); drag(); }}
+              onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSwipeStart(""); }}
               onPress={() => { if (!isEditMode && !isAddingTask) runOnJS(onOpenDetail)(item, false); }}
               delayLongPress={150}
               activeOpacity={0.7}
@@ -492,16 +538,16 @@ function TaskItemRow({ item, drag, isActive, isAddingTask, actualDelete, isFirst
                     {!isEditMode && !isActive ? (
                       <Text style={[styles.statusLabel, item.status === 1 ? { color: '#EAB308' } : null]}>{getStatusText(item.status)}</Text>
                     ) : (
-                      <TouchableOpacity onPressIn={() => { drag(); }} style={styles.dragHandle}><Ionicons name="reorder-two-outline" size={24} color={Colors.secondaryText} /></TouchableOpacity>
+                      <Ionicons name="reorder-two-outline" size={24} color={Colors.secondaryText} />
                     )}
                   </View>
                 </View>
               </View>
             </TouchableOpacity>
-            {!isLast && !isSwiped ? <View style={styles.itemDivider} /> : null}
+            {!isLast && !isSwiped && !isEditMode ? <View style={styles.itemDivider} /> : null}
           </Animated.View>
         </Swipeable>
-      </ScaleDecorator>
+      </View>
     </Animated.View>
   );
 }
@@ -817,30 +863,35 @@ function SignalsIndicator({ isActive }: { isActive: boolean }) {
 }
 
 function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger, onSheetTrigger, homeScrollX }: any) {
-  const activeBubbleX = useSharedValue(0);
-  const bubbleScale = useSharedValue(1);
-  const currentTabSV = useSharedValue(currentTab);
+  const activeBubbleX  = useSharedValue(0);
+  const bubbleScale    = useSharedValue(1);
+  const bubbleFillOp   = useSharedValue(1);   // 1 = normal, 0 = fully transparent
+  const currentTabSV   = useSharedValue(currentTab);
 
   // Apple spring config — snappy with subtle natural bounce
   const SPRING = { damping: 26, stiffness: 340, mass: 0.75 };
 
   useEffect(() => {
     activeBubbleX.value = withSpring(currentTab * TAB_WIDTH, SPRING);
-    currentTabSV.value = currentTab;
+    currentTabSV.value  = currentTab;
   }, [currentTab]);
 
   const bubbleAnimStyle = useAnimatedStyle(() => ({
+    opacity: bubbleFillOp.value,
     transform: [
       { translateX: activeBubbleX.value },
       { scale: bubbleScale.value },
     ],
   }));
 
-  // Drag gesture — bubble follows finger, snaps on release
+  // Hold 300 ms → bubble grows + becomes translucent (liquid glass feel), then drag
   const dragGesture = Gesture.Pan()
-    .activeOffsetX([-8, 8])
-    .onBegin(() => {
-      bubbleScale.value = withSpring(1.08, { damping: 20, stiffness: 500 });
+    .activateAfterLongPress(300)
+    .onStart(() => {
+      // Long-press activated: expand + liquid glass transparency
+      bubbleScale.value  = withSpring(1.10, { damping: 18, stiffness: 400 });
+      bubbleFillOp.value = withTiming(0.35, { duration: 200 });
+      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
     })
     .onUpdate((e) => {
       const startX = currentTabSV.value * TAB_WIDTH;
@@ -849,10 +900,16 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
     .onEnd((e) => {
       const startX = currentTabSV.value * TAB_WIDTH;
       const snapped = Math.round(clamp((startX + e.translationX) / TAB_WIDTH, 0, TAB_COUNT - 1));
-      activeBubbleX.value = withSpring(snapped * TAB_WIDTH, SPRING);
-      bubbleScale.value = withSpring(1.0, SPRING);
+      activeBubbleX.value  = withSpring(snapped * TAB_WIDTH, SPRING);
+      bubbleScale.value    = withSpring(1.0, SPRING);
+      bubbleFillOp.value   = withTiming(1.0, { duration: 250 });
       runOnJS(onChangeTab)(snapped);
       runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
+    })
+    .onFinalize(() => {
+      // Restore if gesture was cancelled
+      bubbleScale.value  = withSpring(1.0, SPRING);
+      bubbleFillOp.value = withTiming(1.0, { duration: 250 });
     });
 
   const renderTab = (tabIndex: number, label: string, iconName: any, customIcon?: React.ReactNode) => {
@@ -861,15 +918,7 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
       <TouchableOpacity
         style={styles.navItem}
         onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onChangeTab(tabIndex); }}
-        onPressIn={() => {
-          // Apple squish: scale down on press
-          bubbleScale.value = withSpring(0.88, { damping: 18, stiffness: 600 });
-        }}
-        onPressOut={() => {
-          // Spring back with slight overshoot — Apple's signature feel
-          bubbleScale.value = withSpring(1.0, SPRING);
-        }}
-        activeOpacity={1}
+        activeOpacity={0.85}
       >
         <View style={styles.navItemContent}>
           {customIcon ?? <Ionicons name={iconName} size={18} color={isActive ? '#1a1a1a' : Colors.secondaryText} />}
@@ -893,14 +942,13 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
             glassEffectStyle="regular"
             colorScheme="light"
           >
-            {/* Active bubble — white gradient so it's visible against the glass */}
+            {/* Active bubble — matches SVG: white 65% + color-burn + darken layers */}
             <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
-              <LinearGradient
-                colors={['rgba(255,255,255,0.92)', 'rgba(255,255,255,0.58)']}
-                start={[0.5, 0]}
-                end={[0.5, 1]}
-                style={StyleSheet.absoluteFill}
-              />
+              {/* Base: rgba(255,255,255,0.65) matching SVG */}
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: 18 }]} />
+              {/* Color-burn layer: #DDDDDD approx */}
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(221,221,221,0.30)', borderRadius: 18 }]} />
+              {/* Subtle top highlight line */}
               <View style={styles.navActiveBubbleHighlight} />
             </Animated.View>
             {/* Tab buttons — wrapped in drag gesture */}
@@ -953,13 +1001,19 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
                 pointerEvents="none"
               />
             </BlurView>
+            {/* Active bubble — SVG style: white 65% + #DDDDDD color-burn + #F7F7F7 darken */}
             <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
-              <LinearGradient
-                colors={['rgba(255,255,255,0.96)', 'rgba(255,255,255,0.62)']}
-                start={[0.5, 0]}
-                end={[0.5, 1]}
-                style={StyleSheet.absoluteFill}
+              <BlurView
+                intensity={18}
+                tint="systemChromeMaterialLight"
+                style={[StyleSheet.absoluteFill, { borderRadius: 18, overflow: 'hidden' }]}
               />
+              {/* rgba(255,255,255,0.65) base */}
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: 18 }]} />
+              {/* rgba(221,221,221,0.30) color-burn approximation */}
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(221,221,221,0.30)', borderRadius: 18 }]} />
+              {/* Border — inner highlight */}
+              <View style={[StyleSheet.absoluteFill, { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.85)' }]} />
               <View style={styles.navActiveBubbleHighlight} />
             </Animated.View>
             <GestureDetector gesture={dragGesture}>
@@ -1593,8 +1647,276 @@ function MainArchiveScreen({ allTasks, onOpenDetail }: { allTasks: TaskItem[], o
   );
 }
 
+// =====================================================================
+// CUSTOM DRAG-AND-DROP (replaces react-native-draggable-flatlist)
+// =====================================================================
+const SORT_H = 52;
+
+function SortableList({ tasks, onReorder, isEditMode, isAddingTask, actualDelete, onSwipeStart, rowRefs, onOpenDetail }: any) {
+  const setIsEditMode = React.useContext(EditModeSetterContext);
+  const n = tasks.length;
+  const dragFrom = useSharedValue(-1);
+  const dragTo   = useSharedValue(-1);
+  const dragDy   = useSharedValue(0);
+
+  // Stable refs so the memoized gesture always sees fresh data
+  const tasksRef    = useRef<TaskItem[]>(tasks);
+  tasksRef.current  = tasks;
+  const reorderRef  = useRef(onReorder);
+  reorderRef.current = onReorder;
+
+  // Reset drag state after tasks update (triggered by reorder → setAllTasks → re-render)
+  const prevTasksKey = useRef(tasks.map((t: TaskItem) => t.id).join(','));
+  useEffect(() => {
+    const key = tasks.map((t: TaskItem) => t.id).join(',');
+    if (prevTasksKey.current !== key) {
+      prevTasksKey.current = key;
+      dragFrom.value = -1;
+      dragTo.value   = -1;
+      dragDy.value   = 0;
+    }
+  }, [tasks]);
+
+  const onDragStart = React.useCallback(() => {
+    setIsEditMode(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, []);
+
+  const onDragEnd = React.useCallback((from: number, to: number) => {
+    if (from >= 0 && to >= 0 && from !== to) {
+      const next = [...tasksRef.current];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      reorderRef.current(next);
+    }
+    setIsEditMode(true);
+  }, []);
+
+  return (
+    <View style={{ position: 'relative', height: n * SORT_H }}>
+      {tasks.map((task: TaskItem, idx: number) => (
+        <SortableTaskItem
+          key={task.id}
+          item={task}
+          index={idx}
+          n={n}
+          dragFrom={dragFrom}
+          dragTo={dragTo}
+          dragDy={dragDy}
+          isEditMode={isEditMode}
+          isAddingTask={isAddingTask}
+          isFirst={idx === 0}
+          isLast={idx === n - 1}
+          swiperRef={(el: any) => rowRefs.current.set(task.id, el)}
+          onSwipeStart={onSwipeStart}
+          actualDelete={actualDelete}
+          onOpenDetail={onOpenDetail}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+        />
+      ))}
+    </View>
+  );
+}
+
+function SortableTaskItem({ item, index, n, dragFrom, dragTo, dragDy, isEditMode, isAddingTask, isFirst, isLast, swiperRef, onSwipeStart, actualDelete, onOpenDetail, onDragStart, onDragEnd }: any) {
+  const setIsEditMode = React.useContext(EditModeSetterContext);
+  const [isSwiped, setIsSwiped] = useState(false);
+  const heightMul = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const topR    = useSharedValue(isFirst ? 18 : 0);
+  const bottomR = useSharedValue(isLast  ? 18 : 0);
+
+  // itemY tracks the natural (non-drag) vertical position of this item.
+  // Animated only when index decreases due to deletion (slides up smoothly).
+  const itemY        = useSharedValue(index * SORT_H);
+  const prevIndexRef = useRef(index);
+  useEffect(() => {
+    const prev = prevIndexRef.current;
+    prevIndexRef.current = index;
+    if (index < prev && dragFrom.value < 0) {
+      // Index decreased with no active drag → item above was deleted, slide up
+      itemY.value = withTiming(index * SORT_H, { duration: 200 });
+    } else {
+      itemY.value = index * SORT_H; // instant for add / drag-reorder
+    }
+  }, [index]);
+
+  useEffect(() => {
+    const allRound = isEditMode || isSwiped;
+    topR.value    = withTiming(allRound ? 18 : (isFirst ? 18 : 0), { duration: 300 });
+    bottomR.value = withTiming(allRound ? 18 : (isLast  ? 18 : 0), { duration: 300 });
+  }, [isEditMode, isFirst, isLast, isSwiped]);
+
+  const gesture = useMemo(() =>
+    Gesture.Pan()
+      .activateAfterLongPress(isEditMode ? 1 : 150)
+      .failOffsetX([-20, 20])
+      .onStart(() => {
+        dragFrom.value = index;
+        dragTo.value   = index;
+        dragDy.value   = 0;
+        runOnJS(onDragStart)();
+      })
+      .onUpdate((e) => {
+        const minY = -index * SORT_H;
+        const maxY = (n - 1 - index) * SORT_H;
+        dragDy.value = Math.max(minY, Math.min(maxY, e.translationY));
+        // Hysteresis: require 60% into next slot to swap (prevents boundary oscillation)
+        const draggingY = index * SORT_H + dragDy.value;
+        const cur = dragTo.value;
+        if (draggingY > (cur + 0.6) * SORT_H && cur < n - 1) {
+          dragTo.value = cur + 1;
+        } else if (draggingY < (cur - 0.6) * SORT_H && cur > 0) {
+          dragTo.value = cur - 1;
+        }
+      })
+      .onEnd(() => {
+        const from = dragFrom.value;
+        const to   = dragTo.value;
+        // Only reset dy — keep from/to until React re-renders with new task order
+        dragDy.value = 0;
+        runOnJS(onDragEnd)(from, to);
+      })
+      .onFinalize(() => {
+        // Only fires for cancellation (dragDy still nonzero = not a normal onEnd)
+        if (dragFrom.value === index && dragDy.value !== 0) {
+          dragFrom.value = -1;
+          dragTo.value   = -1;
+          dragDy.value   = 0;
+        }
+      }),
+    [index, n, isEditMode]
+  );
+
+  const posStyle = useAnimatedStyle(() => {
+    const from     = dragFrom.value;
+    const to       = dragTo.value;
+    const isActive = from === index;
+
+    if (isActive) {
+      // While dragging: follow finger. After release (dragDy=0): sit at final slot
+      // until React re-renders with the new task order.
+      const top = dragDy.value !== 0
+        ? index * SORT_H + dragDy.value
+        : to * SORT_H;
+      return {
+        position: 'absolute', left: 16, right: 16,
+        top,
+        zIndex: 100,
+        shadowColor: '#000', shadowOpacity: 0.12,
+        shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+        elevation: 8,
+      };
+    }
+
+    let targetY = index * SORT_H;
+    if (from >= 0) {
+      if (from < to && index > from && index <= to) targetY = (index - 1) * SORT_H;
+      else if (from > to && index >= to && index < from) targetY = (index + 1) * SORT_H;
+    }
+
+    return {
+      position: 'absolute', left: 16, right: 16,
+      // During drag: smooth swap animation.
+      // Otherwise: use itemY which handles deletion slide-up via its own withTiming.
+      top: from >= 0 ? withTiming(targetY, { duration: 180 }) : itemY.value,
+      zIndex: 1, shadowOpacity: 0, elevation: 0,
+    };
+  });
+
+  const handleDelete = () => {
+    translateX.value = withTiming(-SCREEN_WIDTH, { duration: 250 }, () => {
+      heightMul.value = withTiming(0, { duration: 300 }, (finished) => {
+        if (finished) {
+          runOnJS(actualDelete)(item.id);
+          runOnJS(setIsEditMode)(false);
+        }
+      });
+    });
+  };
+
+  const deleteContainerStyle = useAnimatedStyle(() => ({
+    height: heightMul.value < 1 ? SORT_H * heightMul.value : undefined,
+    overflow: heightMul.value < 1 ? 'hidden' : 'visible',
+  }));
+
+  const bgStyle = useAnimatedStyle(() => {
+    const isActive = dragFrom.value === index;
+    return {
+      backgroundColor: withTiming(isActive ? '#FDFDFD' : '#FFFFFF', { duration: 200 }),
+      transform: [
+        { translateX: translateX.value },
+        { scale: withTiming(isActive ? 1.03 : 1, { duration: 150 }) },
+      ],
+      opacity: withTiming(isAddingTask && !isActive ? 0.3 : 1, { duration: 200 }),
+      borderTopLeftRadius:    topR.value,
+      borderTopRightRadius:   topR.value,
+      borderBottomLeftRadius:  bottomR.value,
+      borderBottomRightRadius: bottomR.value,
+    };
+  });
+
+  const renderRightActions = (progress: any, dragX: any) => {
+    const scale = dragX.interpolate({ inputRange: [-80, 0], outputRange: [1, 0.4], extrapolate: 'clamp' });
+    const actionOpacity = dragX.interpolate({ inputRange: [-80, -20, 0], outputRange: [1, 0, 0], extrapolate: 'clamp' });
+    return (
+      <Animated.View style={styles.rightActionContainer}>
+        <RNAnimated.View style={{ transform: [{ scale }], opacity: actionOpacity, alignItems: 'center' }}>
+          <TouchableOpacity style={styles.deleteCircleButton} onPress={handleDelete} activeOpacity={0.7}>
+            <Ionicons name="trash" size={16} color="white" />
+          </TouchableOpacity>
+          <RNAnimated.Text style={[styles.deleteActionText, { opacity: actionOpacity }]}>Sil</RNAnimated.Text>
+        </RNAnimated.View>
+      </Animated.View>
+    );
+  };
+
+  return (
+    <Animated.View style={posStyle}>
+      <Animated.View style={deleteContainerStyle}>
+        <GestureDetector gesture={gesture}>
+          <Swipeable
+            ref={swiperRef}
+            onSwipeableWillOpen={() => { runOnJS(onSwipeStart)(item.id); setIsSwiped(true); }}
+            onSwipeableWillClose={() => setIsSwiped(false)}
+            renderRightActions={renderRightActions}
+            friction={1.5} overshootFriction={8}
+            enabled={!isEditMode && !isAddingTask}
+            containerStyle={{ overflow: 'visible' }}
+          >
+            <Animated.View style={bgStyle}>
+              <TouchableOpacity
+                onPress={() => { if (!isEditMode && !isAddingTask) onOpenDetail(item, false); }}
+                activeOpacity={0.7}
+                style={{ width: '100%' }}
+              >
+                <View style={styles.taskWrapper}>
+                  <View style={styles.headerContent}>
+                    <View style={styles.leftContent}>
+                      <Text style={styles.taskText} numberOfLines={1} ellipsizeMode="tail">{item.text}</Text>
+                    </View>
+                    <View style={styles.rightContent}>
+                      {!isEditMode
+                        ? <Text style={[styles.statusLabel, item.status === 1 ? { color: '#EAB308' } : null]}>{getStatusText(item.status)}</Text>
+                        : <Ionicons name="reorder-two-outline" size={24} color={Colors.secondaryText} />
+                      }
+                    </View>
+                  </View>
+                </View>
+              </TouchableOpacity>
+              {!isLast && !isSwiped && !isEditMode ? <View style={styles.itemDivider} /> : null}
+            </Animated.View>
+          </Swipeable>
+        </GestureDetector>
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
 const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTasks, isAddingGlobal, setIsAddingGlobal, currentDayOffset, setCurrentDayOffset, homeScrollX, onOpenDetail }: any) {
   const [taskText, setTaskText] = useState('');
+  const isEditMode = React.useContext(EditModeContext);
   const setIsEditMode = React.useContext(EditModeSetterContext);
   
   const rowRefs = useRef<Map<string, any>>(new Map());
@@ -1651,38 +1973,41 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
      }
   }, [isAddingGlobal]);
 
+  const { createSignal: apiCreate, deleteSignal: apiDelete, reorderSignals: apiReorder } = React.useContext(ApiContext);
+
   const handleSubmitTask = () => {
     const textToSave = taskText.trim();
     if (textToSave.length > 0) {
-      const uniqueId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
-      const newTask: TaskItem = { id: uniqueId, text: textToSave, note: '', status: -1, date: getLocalIsoDate(currentDayOffset) };
+      const tempId  = 'tmp_' + Date.now().toString() + Math.random().toString(36).substr(2, 5);
+      const dateStr = getLocalIsoDate(currentDayOffset);
+      const newTask: TaskItem = { id: tempId, text: textToSave, note: '', status: -1, date: dateStr };
+      // Optimistik ekleme
       setAllTasks((prev: TaskItem[]) => [newTask, ...prev]);
+      // API çağrısı — gerçek ID ile temp ID'yi değiştir
+      apiCreate({ text: textToSave, note: '', status: -1, date: dateStr })
+        .then((created: any) => {
+          if (created?.id) {
+            setAllTasks((prev: TaskItem[]) =>
+              prev.map(t => t.id === tempId ? created as TaskItem : t)
+            );
+          }
+        })
+        .catch(() => {
+          // Hata durumunda optimistik eklemeyi geri al
+          setAllTasks((prev: TaskItem[]) => prev.filter(t => t.id !== tempId));
+        });
     }
-    setTaskText(''); 
-    setIsAddingGlobal(false); 
+    setTaskText('');
+    setIsAddingGlobal(false);
     Keyboard.dismiss();
   };
 
-  const deleteTaskFromState = (id: string) => setAllTasks((prev: TaskItem[]) => prev.filter((t: TaskItem) => t.id !== id));
+  const deleteTaskFromState = (id: string) => {
+    setAllTasks((prev: TaskItem[]) => prev.filter((t: TaskItem) => t.id !== id));
+    apiDelete(id).catch(err => console.warn('Silme hatası:', err));
+  };
   
   const onSwipeStart = (openedId: string) => { rowRefs.current.forEach((ref, id) => { if (id !== openedId && ref) ref.close(); }); };
-
-  const renderTaskItem = ({ item, drag, isActive, getIndex }: RenderItemParams<TaskItem>) => {
-    const index = getIndex() || 0;
-    const isAddingActive = isAddingGlobal && currentDayOffset === currentDayOffset;
-    const isFirst = index === 0 && !isAddingActive; 
-    const dayTasksLength = allTasks.filter((t: TaskItem) => t.date === getLocalIsoDate(currentDayOffset)).length;
-    const isLast = index === dayTasksLength - 1;
-
-    const handleOpenDetailWithClose = (t: TaskItem, readOnly: boolean) => {
-       closeAllSwipeables();
-       onOpenDetail(t, readOnly);
-    };
-
-    return (
-      <TaskItemRow item={item} drag={drag} isActive={isActive} isAddingTask={isAddingGlobal} actualDelete={deleteTaskFromState} isFirst={isFirst} isLast={isLast} onSwipeStart={onSwipeStart} swiperRef={(el: any) => rowRefs.current.set(item.id, el)} onOpenDetail={handleOpenDetailWithClose} />
-    );
-  };
 
   const renderDayPage = ({ item: dayOffset }: { item: number }) => {
     const pageDateIso = getLocalIsoDate(dayOffset);
@@ -1706,28 +2031,36 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
           <GradientText text={getFormattedDateDisplay(dayOffset)} style={styles.date} alignmentText={alignmentText} colors={dateColors} />
           <AnimatedProgressSection srValue={srValue} totalStatus={totalStatus} length={dayTasks.length} />
         </View>
-        <DraggableFlatList
+        <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 150, paddingTop: 16 }}
-          containerStyle={styles.listContent}
-          ListHeaderComponent={
-            <View>
-              <InputHeader isAddingThisDay={isAddingThisDay} taskText={taskText} setTaskText={setTaskText} handleSubmitTask={handleSubmitTask} hasItems={dayTasks.length > 0} />
-              
-              <EmptyState 
-                 isVisible={dayTasks.length === 0 && (!isAddingGlobal || currentDayOffset !== dayOffset)} 
-                 onAddTrigger={() => setIsAddingGlobal(true)} 
-              />
-              
-            </View>
-          }
-          data={dayTasks}
-          onDragEnd={({ data }: { data: TaskItem[] }) => { const others = allTasks.filter((t: TaskItem) => t.date !== pageDateIso); setIsEditMode(true); setAllTasks([...others, ...data]); }}
-          keyExtractor={(item: TaskItem) => item.id}
-          renderItem={renderTaskItem}
           keyboardShouldPersistTaps="handled"
-          activationDistance={20}
+          scrollEnabled={!isEditMode}
           onScrollBeginDrag={closeAllSwipeables}
-        />
+          showsVerticalScrollIndicator={false}
+        >
+          <InputHeader isAddingThisDay={isAddingThisDay} taskText={taskText} setTaskText={setTaskText} handleSubmitTask={handleSubmitTask} hasItems={dayTasks.length > 0} />
+          <EmptyState
+            isVisible={dayTasks.length === 0 && (!isAddingGlobal || currentDayOffset !== dayOffset)}
+            onAddTrigger={() => setIsAddingGlobal(true)}
+          />
+          <SortableList
+            tasks={dayTasks}
+            onReorder={(newDayTasks: TaskItem[]) => {
+              const others = allTasks.filter((t: TaskItem) => t.date !== pageDateIso);
+              setAllTasks([...others, ...newDayTasks]);
+              // Sıralamayı API'ye yaz (fire-and-forget)
+              apiReorder(newDayTasks.map((t: TaskItem) => t.id))
+                .catch(err => console.warn('Sıralama hatası:', err));
+            }}
+            isEditMode={isEditMode}
+            isAddingTask={isAddingThisDay}
+            actualDelete={deleteTaskFromState}
+            onSwipeStart={onSwipeStart}
+            rowRefs={rowRefs}
+            onOpenDetail={(t: TaskItem, readOnly: boolean) => { closeAllSwipeables(); onOpenDetail(t, readOnly); }}
+          />
+        </ScrollView>
       </View>
     );
   };
@@ -1756,6 +2089,10 @@ export default function App() {
   const [allTasks, setAllTasks] = useState<TaskItem[]>([]);
   const [isAddingGlobal, setIsAddingGlobal] = useState(false);
   const [currentDayOffset, setCurrentDayOffset] = useState(0);
+
+  // ── Auth state ─────────────────────────────────────────────────────────────
+  const [session,        setSession]        = useState<any>(null);
+  const [isLoadingAuth,  setIsLoadingAuth]  = useState(true);
   
   const [isSheetVisible, setIsSheetVisible] = useState(false); 
   const [signalSheetVisible, setSignalSheetVisible] = useState(false); 
@@ -1778,6 +2115,47 @@ export default function App() {
     screensTranslateX.value = withTiming(-currentScreen * SCREEN_WIDTH, { duration: 300 });
   }, [currentScreen]);
 
+  // ── Supabase: kayıt yok — otomatik anonim oturum (veri yine kullanıcıya özel JWT ile gider)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { session: existing } } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (existing) {
+        setSession(existing);
+        setIsLoadingAuth(false);
+        return;
+      }
+      const { data, error } = await supabase.auth.signInAnonymously();
+      if (cancelled) return;
+      if (error) {
+        console.warn('Anonim oturum açılamadı:', error.message);
+        setIsLoadingAuth(false);
+        return;
+      }
+      setSession(data.session);
+      setIsLoadingAuth(false);
+    })();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+    });
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // ── Oturum açıldığında sinyalleri API'den yükle ───────────────────────────
+  useEffect(() => {
+    if (session) {
+      api.getSignals()
+        .then(tasks => setAllTasks(tasks as TaskItem[]))
+        .catch(err  => console.warn('Sinyaller yüklenemedi:', err));
+    } else if (!isLoadingAuth) {
+      setAllTasks([]);
+    }
+  }, [session, isLoadingAuth]);
+
   const handleOpenSignalDetail = React.useCallback((task: TaskItem, readOnly = false) => {
     setSelectedSignal(task);
     setIsSignalSheetReadOnly(readOnly); 
@@ -1786,23 +2164,51 @@ export default function App() {
 
   useEffect(() => { if (fontsLoaded) SplashScreen.hideAsync(); }, [fontsLoaded]);
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded || isLoadingAuth) return null;
 
-  // 🌟 İŞTE O ŞALTER BURADA DEVREYE GİRİYOR!
-  // Sadece ilk açılışta çalışır, seni Onboarding'e fırlatır, sonra kendi kendini kapatır.
+  // Onboarding — sadece ilk açılışta
   if (isFirstLaunch) {
     isFirstLaunch = false;
     return <Redirect href="/onboarding" />;
   }
 
+  // Oturum yoksa (anonim açılamadıysa) uygulama açılır; API çağrıları başarısız olabilir
   const tasksForCurrentDay = allTasks.filter((t: TaskItem) => t.date === getLocalIsoDate(currentDayOffset));
   const isFabDisabled = currentScreen === TAB_FLOW && tasksForCurrentDay.length >= 3;
 
   const handleUpdateTaskGlobally = (id: string, updates: Partial<TaskItem>) => {
+    // Optimistik güncelleme
     setAllTasks((prev: TaskItem[]) => prev.map((t: TaskItem) => (t.id === id ? { ...t, ...updates } : t)));
+    // API'ye yaz
+    api.updateSignal(id, {
+      text:   updates.text,
+      note:   updates.note,
+      status: updates.status,
+    }).catch(err => console.warn('Güncelleme hatası:', err));
   };
 
+  // ── ApiContext değerleri ────────────────────────────────────────────────────
+  const apiContextValue: ApiContextType = {
+    createSignal: async (task: Partial<TaskItem>) => {
+      const created = await api.createSignal(task);
+      return created as any;
+    },
+    deleteSignal: async (id: string) => {
+      await api.deleteSignal(id);
+    },
+    updateSignal: async (id: string, updates: Partial<TaskItem>) => {
+      await api.updateSignal(id, updates);
+    },
+    reorderSignals: async (orderedIds: string[]) => {
+      await api.reorderSignals(orderedIds);
+    },
+  };
+
+  // App düzeyinde API helper (AddExistingSignalSheet için)
+  const apiCreate = apiContextValue.createSignal;
+
   return (
+    <ApiContext.Provider value={apiContextValue}>
     <EditModeSetterContext.Provider value={setIsEditMode}>
     <EditModeContext.Provider value={isEditMode}>
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: BACKGROUND_ALT }}>
@@ -1828,7 +2234,29 @@ export default function App() {
         homeScrollX={homeScrollX}
       />
       
-      <AddExistingSignalSheet visible={isSheetVisible} onClose={() => setIsSheetVisible(false)} allTasks={allTasks} currentDayCount={tasksForCurrentDay.length} onAdd={(signals: string[]) => { const newTasks = signals.map((text, i) => ({ id: Date.now().toString() + i.toString(), text, note: '', status: -1, date: getLocalIsoDate(currentDayOffset) })); setAllTasks((prev: TaskItem[]) => [...newTasks, ...prev]); }} />
+      <AddExistingSignalSheet
+        visible={isSheetVisible}
+        onClose={() => setIsSheetVisible(false)}
+        allTasks={allTasks}
+        currentDayCount={tasksForCurrentDay.length}
+        onAdd={(signals: string[]) => {
+          const dateStr = getLocalIsoDate(currentDayOffset);
+          signals.forEach((text, i) => {
+            const tempId = 'tmp_' + Date.now().toString() + i.toString();
+            const tempTask: TaskItem = { id: tempId, text, note: '', status: -1, date: dateStr };
+            setAllTasks((prev: TaskItem[]) => [...prev, tempTask]);
+            apiCreate({ text, note: '', status: -1, date: dateStr })
+              .then((created: any) => {
+                if (created?.id) {
+                  setAllTasks((prev: TaskItem[]) =>
+                    prev.map(t => t.id === tempId ? created as TaskItem : t)
+                  );
+                }
+              })
+              .catch(() => setAllTasks((prev: TaskItem[]) => prev.filter(t => t.id !== tempId)));
+          });
+        }}
+      />
       
       <SignalDetailSheet 
         visible={signalSheetVisible} 
@@ -1846,5 +2274,6 @@ export default function App() {
     </GestureHandlerRootView>
     </EditModeContext.Provider>
     </EditModeSetterContext.Provider>
+    </ApiContext.Provider>
   );
 }

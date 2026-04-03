@@ -4,11 +4,11 @@ import { Animated as RNAnimated, StyleSheet, Text, View, TouchableOpacity, SafeA
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts, HostGrotesk_500Medium, HostGrotesk_400Regular, HostGrotesk_700Bold } from '@expo-google-fonts/host-grotesk';
 import * as SplashScreen from 'expo-splash-screen';
-import { GestureHandlerRootView, Swipeable, GestureDetector, Gesture, ScrollView as GHScrollView } from 'react-native-gesture-handler';
+import { GestureHandlerRootView, Swipeable, GestureDetector, Gesture } from 'react-native-gesture-handler';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import Colors from '../src/constants/Colors';
 import * as Haptics from 'expo-haptics';
-import Animated, { SharedValue, useSharedValue, useAnimatedScrollHandler, useAnimatedStyle, interpolate, Extrapolation, runOnJS, withTiming, withSpring, clamp, LinearTransition, withDelay, interpolateColor } from 'react-native-reanimated';
+import Animated, { SharedValue, useSharedValue, useAnimatedStyle, interpolate, Extrapolation, runOnJS, withTiming, withSpring, clamp, LinearTransition, withDelay, interpolateColor } from 'react-native-reanimated';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -32,7 +32,7 @@ let isFirstLaunch = true;
 
 const EditModeContext = React.createContext<boolean>(false);
 const EditModeSetterContext = React.createContext<(v: boolean) => void>(() => {});
-const AnimatedGHScrollView = Animated.createAnimatedComponent(GHScrollView);
+
 
 // =====================================================================
 // 1. SABİTLER & TİPLER
@@ -1599,7 +1599,6 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
   const [taskText, setTaskText] = useState('');
   const setIsEditMode = React.useContext(EditModeSetterContext);
   
-  const flatListRef = useRef<any>(null);
   const rowRefs = useRef<Map<string, any>>(new Map());
 
   const dotsOpacitySV = useSharedValue(1);
@@ -1618,17 +1617,57 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
 
   useEffect(() => { wakeUpDots(); return () => { if (idleTimer.current) clearTimeout(idleTimer.current); }; }, []);
   
-  const lastHapticIndex = useSharedValue(1); 
-  const onScroll = useAnimatedScrollHandler((event: any) => { 
-    homeScrollX.value = event.contentOffset.x; 
-    runOnJS(wakeUpDots)(); 
-    
-    const activeIndex = Math.round(event.contentOffset.x / SCREEN_WIDTH);
-    if (activeIndex !== lastHapticIndex.value) {
-      lastHapticIndex.value = activeIndex;
-      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
-    }
-  });
+  const lastHapticIndex = useSharedValue(1);
+  const startPageX = useSharedValue(SCREEN_WIDTH);
+  const touchStartAbsX = useSharedValue(0);
+  const touchStartAbsY = useSharedValue(0);
+
+  const dayPagerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -homeScrollX.value }],
+  }));
+
+  const pageSwipeGesture = Gesture.Pan()
+    .manualActivation(true)
+    .onTouchesDown((e, stateManager) => {
+      if (e.allTouches.length === 1) {
+        startPageX.value = homeScrollX.value;
+        touchStartAbsX.value = e.allTouches[0].absoluteX;
+        touchStartAbsY.value = e.allTouches[0].absoluteY;
+      }
+    })
+    .onTouchesMove((e, stateManager) => {
+      if (e.allTouches.length === 1) {
+        const dx = e.allTouches[0].absoluteX - touchStartAbsX.value;
+        const dy = e.allTouches[0].absoluteY - touchStartAbsY.value;
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+        if (absDy > 15 && absDy > absDx) {
+          stateManager.fail();
+        } else if (absDx > 25 && absDx > absDy * 1.5) {
+          stateManager.activate();
+        }
+      }
+    })
+    .onUpdate((e) => {
+      homeScrollX.value = clamp(startPageX.value - e.translationX, 0, 2 * SCREEN_WIDTH);
+      runOnJS(wakeUpDots)();
+      const activeIndex = Math.round(homeScrollX.value / SCREEN_WIDTH);
+      if (activeIndex !== lastHapticIndex.value) {
+        lastHapticIndex.value = activeIndex;
+        runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
+      }
+    })
+    .onEnd((e) => {
+      const startPage = Math.round(startPageX.value / SCREEN_WIDTH);
+      let targetPage = Math.round(homeScrollX.value / SCREEN_WIDTH);
+      if (e.velocityX < -500 && e.translationX < -30) {
+        targetPage = Math.min(startPage + 1, 2);
+      } else if (e.velocityX > 500 && e.translationX > 30) {
+        targetPage = Math.max(startPage - 1, 0);
+      }
+      homeScrollX.value = withSpring(targetPage * SCREEN_WIDTH, { damping: 20, stiffness: 200, overshootClamping: true });
+      runOnJS(handlePageChange)(targetPage);
+    });
 
   const closeAllSwipeables = () => {
     rowRefs.current.forEach((ref) => {
@@ -1638,34 +1677,13 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
 
   const handlePageChange = (index: number) => {
     const daysData = [-1, 0, 1]; const newOffset = daysData[index];
-    runOnJS(setCurrentDayOffset)(newOffset);
+    setCurrentDayOffset(newOffset);
     setIsAddingGlobal(false); 
     setIsEditMode(false); Keyboard.dismiss();
     closeAllSwipeables();
   };
 
-  const navigateToPage = (index: number) => {
-    flatListRef.current?.scrollTo({ x: index * SCREEN_WIDTH, animated: true });
-    handlePageChange(index);
-  };
-
-  const pageNavGesture = Gesture.Pan()
-    .activeOffsetX([-12, 12])
-    .failOffsetY([-12, 12])
-    .onEnd((e) => {
-      const currentIndex = Math.round(homeScrollX.value / SCREEN_WIDTH);
-      let targetIndex = currentIndex;
-      if (e.velocityX < -400 && e.translationX < -40) {
-        targetIndex = Math.min(currentIndex + 1, 2);
-      } else if (e.velocityX > 400 && e.translationX > 40) {
-        targetIndex = Math.max(currentIndex - 1, 0);
-      }
-      if (targetIndex !== currentIndex) {
-        runOnJS(navigateToPage)(targetIndex);
-      }
-    });
-
-  useEffect(() => { setTimeout(() => { homeScrollX.value = SCREEN_WIDTH; flatListRef.current?.scrollTo({ x: SCREEN_WIDTH, animated: false }); }, 50); }, []);
+  useEffect(() => { homeScrollX.value = SCREEN_WIDTH; }, []);
   useEffect(() => { const listener = Keyboard.addListener('keyboardDidHide', () => { if (taskText.trim() === '') { setIsAddingGlobal(false); } }); return () => listener.remove(); }, [taskText]);
   
   useEffect(() => { 
@@ -1763,20 +1781,15 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
         <View style={styles.header}>
           <View style={styles.dotsContainer}>{[-1, 0, 1].map((_, i) => (<AnimatedDot key={i.toString()} index={i} scrollX={homeScrollX} dotsOpacitySV={dotsOpacitySV} />))}</View>
         </View>
-        <AnimatedGHScrollView
-          ref={flatListRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onScroll={onScroll}
-          scrollEventThrottle={16}
-          style={{ flex: 1 }}
-          onMomentumScrollEnd={(e: any) => { const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH); runOnJS(handlePageChange)(index); }}
-        >
-          {([-1, 0, 1] as number[]).map((dayOffset: number) => (
-            <React.Fragment key={dayOffset}>{renderDayPage({ item: dayOffset })}</React.Fragment>
-          ))}
-        </AnimatedGHScrollView>
+        <View style={{ flex: 1, overflow: 'hidden' }}>
+          <GestureDetector gesture={pageSwipeGesture}>
+            <Animated.View style={[{ flexDirection: 'row', width: SCREEN_WIDTH * 3, flex: 1 }, dayPagerStyle]}>
+              {([-1, 0, 1] as number[]).map((dayOffset: number) => (
+                <React.Fragment key={dayOffset}>{renderDayPage({ item: dayOffset })}</React.Fragment>
+              ))}
+            </Animated.View>
+          </GestureDetector>
+        </View>
       </SafeAreaView>
     </Pressable>
   );
@@ -1828,11 +1841,11 @@ export default function App() {
     setAllTasks((prev: TaskItem[]) => prev.map((t: TaskItem) => (t.id === id ? { ...t, ...updates } : t)));
   };
 
-  const handleOpenSignalDetail = (task: TaskItem, readOnly = false) => {
+  const handleOpenSignalDetail = React.useCallback((task: TaskItem, readOnly = false) => {
     setSelectedSignal(task);
     setIsSignalSheetReadOnly(readOnly); 
     setSignalSheetVisible(true);
-  };
+  }, []);
 
   return (
     <EditModeSetterContext.Provider value={setIsEditMode}>

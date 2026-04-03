@@ -4,6 +4,7 @@ import { Animated as RNAnimated, StyleSheet, Text, View, TouchableOpacity, SafeA
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
+import { getOnboardingComplete } from '../lib/onboardingStorage';
 import { useFonts, HostGrotesk_500Medium, HostGrotesk_400Regular, HostGrotesk_700Bold } from '@expo-google-fonts/host-grotesk';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView, Swipeable, GestureDetector, Gesture } from 'react-native-gesture-handler';
@@ -27,9 +28,6 @@ if (Platform.OS === 'android') {
     UIManager.setLayoutAnimationEnabledExperimental(true);
   }
 }
-
-// 🌟 AKILLI ŞALTER: Uygulama ilk açıldığında true olur.
-let isFirstLaunch = true;
 
 const EditModeContext = React.createContext<boolean>(false);
 const EditModeSetterContext = React.createContext<(v: boolean) => void>(() => {});
@@ -2093,6 +2091,10 @@ export default function App() {
   // ── Auth state ─────────────────────────────────────────────────────────────
   const [session,        setSession]        = useState<any>(null);
   const [isLoadingAuth,  setIsLoadingAuth]  = useState(true);
+
+  // ── Onboarding: sadece ilk kurulumda göster (AsyncStorage) ─────────────────
+  const [onboardingChecked, setOnboardingChecked]     = useState(false);
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   
   const [isSheetVisible, setIsSheetVisible] = useState(false); 
   const [signalSheetVisible, setSignalSheetVisible] = useState(false); 
@@ -2114,6 +2116,13 @@ export default function App() {
   useEffect(() => {
     screensTranslateX.value = withTiming(-currentScreen * SCREEN_WIDTH, { duration: 300 });
   }, [currentScreen]);
+
+  useEffect(() => {
+    getOnboardingComplete().then((done) => {
+      setHasCompletedOnboarding(done);
+      setOnboardingChecked(true);
+    });
+  }, []);
 
   // ── Supabase: kayıt yok — otomatik anonim oturum (veri yine kullanıcıya özel JWT ile gider)
   useEffect(() => {
@@ -2164,13 +2173,9 @@ export default function App() {
 
   useEffect(() => { if (fontsLoaded) SplashScreen.hideAsync(); }, [fontsLoaded]);
 
-  if (!fontsLoaded || isLoadingAuth) return null;
+  if (!fontsLoaded || isLoadingAuth || !onboardingChecked) return null;
 
-  // Onboarding — sadece ilk açılışta
-  if (isFirstLaunch) {
-    isFirstLaunch = false;
-    return <Redirect href="/onboarding" />;
-  }
+  if (!hasCompletedOnboarding) return <Redirect href="/onboarding" />;
 
   // Oturum yoksa (anonim açılamadıysa) uygulama açılır; API çağrıları başarısız olabilir
   const tasksForCurrentDay = allTasks.filter((t: TaskItem) => t.date === getLocalIsoDate(currentDayOffset));

@@ -21,7 +21,8 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Canvas, RoundedRect, RadialGradient, Shadow, vec, FractalNoise } from "@shopify/react-native-skia"; 
+import { Canvas, RoundedRect, RadialGradient, Shadow, vec, FractalNoise } from "@shopify/react-native-skia";
+import { setOnboardingComplete } from '../lib/onboardingStorage'; 
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const BACKGROUND_COLOR = 'rgba(37, 36, 34, 1)'; 
@@ -294,7 +295,9 @@ export default function OnboardingScreen() {
       setStep(step + 1);
     } else {
       exitAnim.value = withTiming(0, { duration: 400, easing: Easing.out(Easing.ease) });
-      setTimeout(() => { router.replace('/'); }, 400);
+      setTimeout(() => {
+        void setOnboardingComplete().then(() => router.replace('/'));
+      }, 400);
     }
   };
 

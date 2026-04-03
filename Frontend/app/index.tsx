@@ -1725,7 +1725,7 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
           keyExtractor={(item: TaskItem) => item.id}
           renderItem={renderTaskItem}
           keyboardShouldPersistTaps="handled"
-          activationDistance={0}
+          activationDistance={20}
           onScrollBeginDrag={closeAllSwipeables}
         />
       </View>

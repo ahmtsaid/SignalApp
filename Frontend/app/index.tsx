@@ -4,7 +4,7 @@ import { Animated as RNAnimated, StyleSheet, Text, View, TouchableOpacity, SafeA
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts, HostGrotesk_500Medium, HostGrotesk_400Regular, HostGrotesk_700Bold } from '@expo-google-fonts/host-grotesk';
 import * as SplashScreen from 'expo-splash-screen';
-import { GestureHandlerRootView, Swipeable, GestureDetector, Gesture } from 'react-native-gesture-handler';
+import { GestureHandlerRootView, GestureDetector, Gesture } from 'react-native-gesture-handler';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import Colors from '../src/constants/Colors';
 import * as Haptics from 'expo-haptics';
@@ -422,12 +422,23 @@ function InputHeader({ isAddingThisDay, taskText, setTaskText, handleSubmitTask,
 
 function TaskItemRow({ item, drag, isActive, isAddingTask, actualDelete, isFirst, isLast, onSwipeStart, swiperRef, onOpenDetail }: any) {
   const heightMultiplier = useSharedValue(1);
-  const translateX = useSharedValue(0);
+  const swipeX = useSharedValue(0);
+  const swipeIsOpen = useSharedValue(false);
   const topR = useSharedValue(isFirst ? 18 : 0);
   const bottomR = useSharedValue(isLast ? 18 : 0);
   const isEditMode = React.useContext(EditModeContext);
   const setIsEditMode = React.useContext(EditModeSetterContext);
   const [isSwiped, setIsSwiped] = useState(false);
+
+  React.useEffect(() => {
+    swiperRef({
+      close: () => {
+        swipeX.value = withTiming(0, { duration: 200 });
+        swipeIsOpen.value = false;
+        setIsSwiped(false);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     topR.value = withTiming((isActive || isSwiped) ? 18 : (isFirst ? 18 : 0), { duration: 260 });
@@ -435,7 +446,7 @@ function TaskItemRow({ item, drag, isActive, isAddingTask, actualDelete, isFirst
   }, [isActive, isFirst, isLast, isSwiped]);
 
   const handleDelete = () => {
-    translateX.value = withTiming(-SCREEN_WIDTH, { duration: 250 }, () => {
+    swipeX.value = withTiming(-SCREEN_WIDTH, { duration: 250 }, () => {
       heightMultiplier.value = withTiming(0, { duration: 300 }, (finished) => {
         if (finished) {
           runOnJS(actualDelete)(item.id);
@@ -448,62 +459,85 @@ function TaskItemRow({ item, drag, isActive, isAddingTask, actualDelete, isFirst
   const animatedRowStyle = useAnimatedStyle(() => ({
     height: heightMultiplier.value < 1 ? 52 * heightMultiplier.value : undefined, marginHorizontal: 16, overflow: heightMultiplier.value < 1 ? 'hidden' : 'visible', zIndex: isActive ? 999 : 1,
   }));
-  
-  const animatedBgStyle = useAnimatedStyle(() => {
-    return {
-      backgroundColor: withTiming(isActive ? '#FDFDFD' : '#FFFFFF', { duration: 200 }),
-      transform: [{ translateX: translateX.value }],
-      opacity: withTiming(isAddingTask && !isActive ? 0.3 : 1, { duration: 200 }),
-      borderTopLeftRadius: topR.value,
-      borderTopRightRadius: topR.value,
-      borderBottomLeftRadius: bottomR.value,
-      borderBottomRightRadius: bottomR.value,
-    };
-  });
 
-  const renderRightActions = (progress: any, dragX: any) => {
-    const scale = dragX.interpolate({ inputRange: [-80, 0], outputRange: [1, 0.4], extrapolate: 'clamp' });
-    const actionOpacity = dragX.interpolate({ inputRange: [-80, -20, 0], outputRange: [1, 0, 0], extrapolate: 'clamp' });
-    return (
-      <Animated.View style={styles.rightActionContainer}>
-        <RNAnimated.View style={{ transform: [{ scale }], opacity: actionOpacity, alignItems: 'center' }}>
-          <TouchableOpacity style={styles.deleteCircleButton} onPress={handleDelete} activeOpacity={0.7}><Ionicons name="trash" size={16} color="white" /></TouchableOpacity>
-          <RNAnimated.Text style={[styles.deleteActionText, { opacity: actionOpacity }]}>Sil</RNAnimated.Text>
-        </RNAnimated.View>
-      </Animated.View>
-    );
-  };
+  const animatedBgStyle = useAnimatedStyle(() => ({
+    backgroundColor: withTiming(isActive ? '#FDFDFD' : '#FFFFFF', { duration: 200 }),
+    transform: [{ translateX: swipeX.value }],
+    opacity: withTiming(isAddingTask && !isActive ? 0.3 : 1, { duration: 200 }),
+    borderTopLeftRadius: topR.value,
+    borderTopRightRadius: topR.value,
+    borderBottomLeftRadius: bottomR.value,
+    borderBottomRightRadius: bottomR.value,
+  }));
+
+  const swipeGesture = Gesture.Pan()
+    .activeOffsetX([-15, 10000])
+    .failOffsetY([-10, 10])
+    .enabled(!isActive && !isEditMode && !isAddingTask)
+    .onUpdate((e) => {
+      'worklet';
+      if (swipeIsOpen.value) {
+        swipeX.value = Math.min(0, -80 + e.translationX);
+      } else {
+        swipeX.value = Math.min(0, e.translationX);
+      }
+    })
+    .onEnd((e) => {
+      'worklet';
+      if (swipeX.value < -50 || e.velocityX < -500) {
+        swipeX.value = withTiming(-80, { duration: 200 });
+        swipeIsOpen.value = true;
+        runOnJS(onSwipeStart)(item.id);
+        runOnJS(setIsSwiped)(true);
+      } else {
+        swipeX.value = withTiming(0, { duration: 200 });
+        swipeIsOpen.value = false;
+        runOnJS(setIsSwiped)(false);
+      }
+    });
+
+  const deleteButtonStyle = useAnimatedStyle(() => {
+    const s = interpolate(swipeX.value, [-80, 0], [1, 0.4], Extrapolation.CLAMP);
+    const o = interpolate(swipeX.value, [-80, -20, 0], [1, 0, 0], Extrapolation.CLAMP);
+    return { transform: [{ scale: s }], opacity: o };
+  });
 
   return (
     <Animated.View style={animatedRowStyle}>
       <ScaleDecorator activeScale={1.03}>
-        <Swipeable ref={swiperRef} onSwipeableWillOpen={() => { runOnJS(onSwipeStart)(item.id); setIsSwiped(true); }} onSwipeableWillClose={() => setIsSwiped(false)} renderRightActions={renderRightActions} friction={1.5} overshootFriction={8} enabled={!isActive && !isEditMode && !isAddingTask} containerStyle={{ overflow: 'visible' }}>
-          <Animated.View style={[animatedBgStyle, isActive ? styles.activeTaskShadow : null]}>
-            <TouchableOpacity 
-              onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSwipeStart(""); setIsEditMode(true); drag(); }} 
-              onPress={() => { if (!isEditMode && !isAddingTask) runOnJS(onOpenDetail)(item, false); }} 
-              delayLongPress={150} 
-              activeOpacity={0.7} 
-              style={{ width: '100%' }}
-            >
-              <View style={styles.taskWrapper}>
-                <View style={styles.headerContent}>
-                  <View style={styles.leftContent}>
-                    <Text style={styles.taskText} numberOfLines={1} ellipsizeMode="tail">{item.text}</Text>
-                  </View>
-                  <View style={styles.rightContent}>
-                    {!isEditMode && !isActive ? (
-                      <Text style={[styles.statusLabel, item.status === 1 ? { color: '#EAB308' } : null]}>{getStatusText(item.status)}</Text>
-                    ) : (
-                      <TouchableOpacity onPressIn={() => { drag(); }} style={styles.dragHandle}><Ionicons name="reorder-two-outline" size={24} color={Colors.secondaryText} /></TouchableOpacity>
-                    )}
+        <View>
+          <Animated.View style={[{ position: 'absolute', right: 0, top: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', width: 80 }, deleteButtonStyle]}>
+            <TouchableOpacity style={styles.deleteCircleButton} onPress={handleDelete} activeOpacity={0.7}><Ionicons name="trash" size={16} color="white" /></TouchableOpacity>
+            <Text style={styles.deleteActionText}>Sil</Text>
+          </Animated.View>
+          <GestureDetector gesture={swipeGesture}>
+            <Animated.View style={[animatedBgStyle, isActive ? styles.activeTaskShadow : null]}>
+              <TouchableOpacity
+                onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onSwipeStart(""); setIsEditMode(true); drag(); }}
+                onPress={() => { if (!isEditMode && !isAddingTask) runOnJS(onOpenDetail)(item, false); }}
+                delayLongPress={150}
+                activeOpacity={0.7}
+                style={{ width: '100%' }}
+              >
+                <View style={styles.taskWrapper}>
+                  <View style={styles.headerContent}>
+                    <View style={styles.leftContent}>
+                      <Text style={styles.taskText} numberOfLines={1} ellipsizeMode="tail">{item.text}</Text>
+                    </View>
+                    <View style={styles.rightContent}>
+                      {!isEditMode && !isActive ? (
+                        <Text style={[styles.statusLabel, item.status === 1 ? { color: '#EAB308' } : null]}>{getStatusText(item.status)}</Text>
+                      ) : (
+                        <TouchableOpacity onPressIn={() => { drag(); }} style={styles.dragHandle}><Ionicons name="reorder-two-outline" size={24} color={Colors.secondaryText} /></TouchableOpacity>
+                      )}
+                    </View>
                   </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-            {!isLast && !isSwiped ? <View style={styles.itemDivider} /> : null}
-          </Animated.View>
-        </Swipeable>
+              </TouchableOpacity>
+              {!isLast && !isSwiped ? <View style={styles.itemDivider} /> : null}
+            </Animated.View>
+          </GestureDetector>
+        </View>
       </ScaleDecorator>
     </Animated.View>
   );

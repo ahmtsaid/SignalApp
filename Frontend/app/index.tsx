@@ -11,6 +11,7 @@ import * as Haptics from 'expo-haptics';
 import Animated, { SharedValue, useSharedValue, useAnimatedStyle, interpolate, Extrapolation, runOnJS, withTiming, withSpring, clamp, LinearTransition, withDelay, interpolateColor } from 'react-native-reanimated';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
+import PagerView from 'react-native-pager-view';
 
 // SİHİRLİ SİLAH: SHOPIFY SKIA & SVG
 import { Canvas, center, RoundedRect } from '@shopify/react-native-skia';
@@ -1617,57 +1618,8 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
 
   useEffect(() => { wakeUpDots(); return () => { if (idleTimer.current) clearTimeout(idleTimer.current); }; }, []);
   
-  const lastHapticIndex = useSharedValue(1);
-  const startPageX = useSharedValue(SCREEN_WIDTH);
-  const touchStartAbsX = useSharedValue(0);
-  const touchStartAbsY = useSharedValue(0);
-
-  const dayPagerStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: -homeScrollX.value }],
-  }));
-
-  const pageSwipeGesture = Gesture.Pan()
-    .manualActivation(true)
-    .onTouchesDown((e, stateManager) => {
-      if (e.allTouches.length === 1) {
-        startPageX.value = homeScrollX.value;
-        touchStartAbsX.value = e.allTouches[0].absoluteX;
-        touchStartAbsY.value = e.allTouches[0].absoluteY;
-      }
-    })
-    .onTouchesMove((e, stateManager) => {
-      if (e.allTouches.length === 1) {
-        const dx = e.allTouches[0].absoluteX - touchStartAbsX.value;
-        const dy = e.allTouches[0].absoluteY - touchStartAbsY.value;
-        const absDx = Math.abs(dx);
-        const absDy = Math.abs(dy);
-        if (absDy > 15 && absDy > absDx) {
-          stateManager.fail();
-        } else if (absDx > 25 && absDx > absDy * 1.5) {
-          stateManager.activate();
-        }
-      }
-    })
-    .onUpdate((e) => {
-      homeScrollX.value = clamp(startPageX.value - e.translationX, 0, 2 * SCREEN_WIDTH);
-      runOnJS(wakeUpDots)();
-      const activeIndex = Math.round(homeScrollX.value / SCREEN_WIDTH);
-      if (activeIndex !== lastHapticIndex.value) {
-        lastHapticIndex.value = activeIndex;
-        runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
-      }
-    })
-    .onEnd((e) => {
-      const startPage = Math.round(startPageX.value / SCREEN_WIDTH);
-      let targetPage = Math.round(homeScrollX.value / SCREEN_WIDTH);
-      if (e.velocityX < -500 && e.translationX < -30) {
-        targetPage = Math.min(startPage + 1, 2);
-      } else if (e.velocityX > 500 && e.translationX > 30) {
-        targetPage = Math.max(startPage - 1, 0);
-      }
-      homeScrollX.value = withSpring(targetPage * SCREEN_WIDTH, { damping: 20, stiffness: 200, overshootClamping: true });
-      runOnJS(handlePageChange)(targetPage);
-    });
+  const pagerRef = useRef<PagerView>(null);
+  const lastHapticIndex = useRef(1);
 
   const closeAllSwipeables = () => {
     rowRefs.current.forEach((ref) => {
@@ -1681,6 +1633,17 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
     setIsAddingGlobal(false); 
     setIsEditMode(false); Keyboard.dismiss();
     closeAllSwipeables();
+  };
+
+  const onPageScroll = (e: any) => {
+    const { position, offset } = e.nativeEvent;
+    homeScrollX.value = (position + offset) * SCREEN_WIDTH;
+    wakeUpDots();
+    const activeIndex = Math.round(position + offset);
+    if (activeIndex !== lastHapticIndex.current) {
+      lastHapticIndex.current = activeIndex;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
   };
 
   useEffect(() => { homeScrollX.value = SCREEN_WIDTH; }, []);
@@ -1781,15 +1744,18 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
         <View style={styles.header}>
           <View style={styles.dotsContainer}>{[-1, 0, 1].map((_, i) => (<AnimatedDot key={i.toString()} index={i} scrollX={homeScrollX} dotsOpacitySV={dotsOpacitySV} />))}</View>
         </View>
-        <View style={{ flex: 1, overflow: 'hidden' }}>
-          <GestureDetector gesture={pageSwipeGesture}>
-            <Animated.View style={[{ flexDirection: 'row', width: SCREEN_WIDTH * 3, flex: 1 }, dayPagerStyle]}>
-              {([-1, 0, 1] as number[]).map((dayOffset: number) => (
-                <React.Fragment key={dayOffset}>{renderDayPage({ item: dayOffset })}</React.Fragment>
-              ))}
-            </Animated.View>
-          </GestureDetector>
-        </View>
+        <PagerView
+          ref={pagerRef}
+          style={{ flex: 1 }}
+          initialPage={1}
+          overdrag={true}
+          onPageScroll={onPageScroll}
+          onPageSelected={(e: any) => handlePageChange(e.nativeEvent.position)}
+        >
+          <View key="0" style={{ flex: 1 }}>{renderDayPage({ item: -1 })}</View>
+          <View key="1" style={{ flex: 1 }}>{renderDayPage({ item: 0 })}</View>
+          <View key="2" style={{ flex: 1 }}>{renderDayPage({ item: 1 })}</View>
+        </PagerView>
       </SafeAreaView>
     </Pressable>
   );

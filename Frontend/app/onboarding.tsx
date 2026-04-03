@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Dimensions, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { 
   useSharedValue, 
   SharedValue,
@@ -16,7 +17,8 @@ import Animated, {
   interpolateColor,
   withSequence,
   withDelay,
-  useDerivedValue 
+  useDerivedValue,
+  runOnJS,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Canvas, RoundedRect, RadialGradient, Shadow, vec, FractalNoise } from "@shopify/react-native-skia"; 
@@ -292,13 +294,26 @@ export default function OnboardingScreen() {
       setStep(step + 1);
     } else {
       exitAnim.value = withTiming(0, { duration: 400, easing: Easing.out(Easing.ease) });
-      
-      setTimeout(() => {
-        // 🌟 'Get Started'a basılınca index.tsx (Ana Uygulama) rotasına yönlendirir.
-        router.replace('/'); 
-      }, 400);
+      setTimeout(() => { router.replace('/'); }, 400);
     }
   };
+
+  const handlePrev = () => {
+    if (step > 0) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setStep(step - 1);
+    }
+  };
+
+  const swipeGesture = Gesture.Pan()
+    .activeOffsetX([-20, 20])
+    .onEnd((e) => {
+      if (e.translationX < -50 && e.velocityX < 200) {
+        runOnJS(handleNext)();
+      } else if (e.translationX > 50 && e.velocityX > -200) {
+        runOnJS(handlePrev)();
+      }
+    });
 
   const textContainerStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: -stepProgress.value * SCREEN_WIDTH }],
@@ -355,6 +370,8 @@ export default function OnboardingScreen() {
   }));
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureDetector gesture={swipeGesture}>
     <AnimatedSafeArea style={[styles.container, animatedBgStyle, exitScreenStyle]}>
       
       <View style={styles.animationArea}>
@@ -460,6 +477,8 @@ export default function OnboardingScreen() {
         </AnimatedTouchableOpacity>
       </View>
     </AnimatedSafeArea>
+    </GestureDetector>
+    </GestureHandlerRootView>
   );
 }
 

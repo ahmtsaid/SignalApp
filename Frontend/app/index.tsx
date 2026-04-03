@@ -472,6 +472,7 @@ function TaskItemRow({ item, drag, isActive, isAddingTask, actualDelete, isFirst
 
   const swipeGesture = Gesture.Pan()
     .activeOffsetX([-15, 10000])
+    .failOffsetX([-10000, 10])
     .failOffsetY([-10, 10])
     .enabled(!isActive && !isEditMode && !isAddingTask)
     .onUpdate((e) => {
@@ -1653,6 +1654,8 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
   useEffect(() => { wakeUpDots(); return () => { if (idleTimer.current) clearTimeout(idleTimer.current); }; }, []);
   
   const pagerRef = useRef<PagerView>(null);
+  const pagerNativeRef = useRef<any>(null);
+  const pagerNativeGesture = Gesture.Native().withRef(pagerNativeRef);
   const lastHapticIndex = useRef(1);
 
   const closeAllSwipeables = () => {
@@ -1765,7 +1768,8 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
           renderItem={renderTaskItem}
           keyboardShouldPersistTaps="handled"
           activationDistance={0}
-          onScrollBeginDrag={closeAllSwipeables} 
+          onScrollBeginDrag={closeAllSwipeables}
+          simultaneousHandlers={[pagerNativeRef]}
         />
       </View>
     );
@@ -1778,18 +1782,20 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
         <View style={styles.header}>
           <View style={styles.dotsContainer}>{[-1, 0, 1].map((_, i) => (<AnimatedDot key={i.toString()} index={i} scrollX={homeScrollX} dotsOpacitySV={dotsOpacitySV} />))}</View>
         </View>
-        <PagerView
-          ref={pagerRef}
-          style={{ flex: 1 }}
-          initialPage={1}
-          overdrag={true}
-          onPageScroll={onPageScroll}
-          onPageSelected={(e: any) => handlePageChange(e.nativeEvent.position)}
-        >
-          <View key="0" style={{ flex: 1 }}>{renderDayPage({ item: -1 })}</View>
-          <View key="1" style={{ flex: 1 }}>{renderDayPage({ item: 0 })}</View>
-          <View key="2" style={{ flex: 1 }}>{renderDayPage({ item: 1 })}</View>
-        </PagerView>
+        <GestureDetector gesture={pagerNativeGesture}>
+          <PagerView
+            ref={pagerRef}
+            style={{ flex: 1 }}
+            initialPage={1}
+            overdrag={true}
+            onPageScroll={onPageScroll}
+            onPageSelected={(e: any) => handlePageChange(e.nativeEvent.position)}
+          >
+            <View key="0" style={{ flex: 1 }}>{renderDayPage({ item: -1 })}</View>
+            <View key="1" style={{ flex: 1 }}>{renderDayPage({ item: 0 })}</View>
+            <View key="2" style={{ flex: 1 }}>{renderDayPage({ item: 1 })}</View>
+          </PagerView>
+        </GestureDetector>
       </SafeAreaView>
     </Pressable>
   );

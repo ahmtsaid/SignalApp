@@ -1823,6 +1823,12 @@ export default function App() {
     screensTranslateX.value = withTiming(-currentScreen * SCREEN_WIDTH, { duration: 300 });
   }, [currentScreen]);
 
+  const handleOpenSignalDetail = React.useCallback((task: TaskItem, readOnly = false) => {
+    setSelectedSignal(task);
+    setIsSignalSheetReadOnly(readOnly); 
+    setSignalSheetVisible(true);
+  }, []);
+
   useEffect(() => { if (fontsLoaded) SplashScreen.hideAsync(); }, [fontsLoaded]);
 
   if (!fontsLoaded) return null;
@@ -1840,12 +1846,6 @@ export default function App() {
   const handleUpdateTaskGlobally = (id: string, updates: Partial<TaskItem>) => {
     setAllTasks((prev: TaskItem[]) => prev.map((t: TaskItem) => (t.id === id ? { ...t, ...updates } : t)));
   };
-
-  const handleOpenSignalDetail = React.useCallback((task: TaskItem, readOnly = false) => {
-    setSelectedSignal(task);
-    setIsSignalSheetReadOnly(readOnly); 
-    setSignalSheetVisible(true);
-  }, []);
 
   return (
     <EditModeSetterContext.Provider value={setIsEditMode}>

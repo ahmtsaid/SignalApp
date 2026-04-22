@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Redirect } from 'expo-router';
 import { Animated as RNAnimated, StyleSheet, Text, View, TouchableOpacity, SafeAreaView, Platform, StatusBar, TextInput, Keyboard, UIManager, Pressable, Dimensions, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,7 +19,32 @@ import { Canvas, center, RoundedRect } from '@shopify/react-native-skia';
 import { useDerivedValue } from 'react-native-reanimated';
 import Svg, { Defs, RadialGradient, LinearGradient as SvgLinearGradient, Rect, Stop, Circle } from 'react-native-svg';
 import { BlurView } from 'expo-blur';
-import { GlassView, GlassContainer, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+
+/**
+ * =============================================================================
+ * app/index.tsx — ANA UYGULAMA (DOSYA HARİTASI)
+ * =============================================================================
+ * Expo Router bu dosyayı "/" rotası olarak yükler (`export default App`).
+ *
+ * Ctrl+F ile şu başlıkları arayarak bölümler arasında gezinebilirsin:
+ *   "1. SABİTLER" … "12. APP" veya "CONTEXT", "CUSTOM DRAG"
+ *
+ * | Bölüm | İçerik |
+ * |-------|--------|
+ * | Context | EditMode + ApiContext — sürükleme modu ve API (create/delete/…) |
+ * | 1–2 | Ekran ölçüleri, sekmeler, `TaskItem` tipi, `StyleSheet` |
+ * | 3 | Tarih/durum string yardımcıları |
+ * | 4 | Boş durum, progress bar, gün noktaları (dots), gradient metin |
+ * | 5 | Yeni sinyal input’u, satır bileşenleri (Track/Archive) |
+ * | 6 | Takvim ızgarası (Track), yıl kartı, dekoratif bubble’lar |
+ * | 7 | Alt sekme ikonları + LiquidBottomNav (kayan balon, FAB) |
+ * | 8 | Modal sheet’ler: sinyal detayı, mevcut sinyal seçme |
+ * | 9 | Track ve Signals tam ekranları |
+ * | 10 | Sürükle-sırala: SortableList / SortableTaskItem |
+ * | 11 | FlowHomeScreen — Dün/Bugün/Yarın yatay kaydırma |
+ * | 12 | App — onboarding, Supabase oturum, üç ana sekme |
+ * =============================================================================
+ */
 
 SplashScreen.preventAutoHideAsync();
 
@@ -29,10 +54,15 @@ if (Platform.OS === 'android') {
   }
 }
 
+/** Sürükle-sıralama modunda mıyız? (alt çubuk ikonları vs.) */
 const EditModeContext = React.createContext<boolean>(false);
+/** `setIsEditMode` — alt listede düzenleme modunu aç/kapa */
 const EditModeSetterContext = React.createContext<(v: boolean) => void>(() => {});
 
-// API fonksiyonları için context — prop drilling'i önler
+/**
+ * API çağrıları (create/delete/update/reorder) FlowHomeScreen'den App'e taşınmadan
+ * erişmek için. `App` içinde gerçek `api.*` ile doldurulur.
+ */
 interface ApiContextType {
   createSignal:   (task: Partial<TaskItem>) => Promise<void>;
   deleteSignal:   (id: string) => Promise<void>;
@@ -67,11 +97,14 @@ const TAB_WIDTH = (NEW_NAV_WIDTH - (CONTAINER_PADDING_H * 2)) / TAB_COUNT;
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+/** Tek bir “sinyal” satırı — UI ve backend `Signal` ile eşlenir (lib/api.ts). */
 export interface TaskItem {
   id: string;
   text: string;
   note: string;
+  /** -1 = henüz işaretlenmedi; 0–1 arası oran (0.25=%25); 1 = Done */
   status: number;
+  /** Yerel gün: `YYYY-MM-DD` */
   date: string;
 }
 
@@ -236,7 +269,16 @@ const styles = StyleSheet.create({
   monthSelectorRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   yearCardMonth: { fontFamily: 'HostGrotesk_400Regular', fontSize: 12, color: '#666', marginHorizontal: 4 },
   yearCardStats: { fontFamily: 'HostGrotesk_400Regular', fontSize: 10, color: '#999', marginBottom:6 , marginTop : -2},
-  bubblesWrapper: { position: 'absolute', right: 0, left: 0, top: 0, bottom: 0, zIndex: 0 }, 
+  bubblesWrapper: { position: 'absolute', right: 0, left: 0, top: 0, bottom: 0, zIndex: 0 },
+  /** YearCard: bubble görselinin üstünde dokunma + yatay kaydırma (sol metin alanına dokunulmaz) */
+  yearBubbleGestureLayer: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: '58%',
+    zIndex: 1,
+  }, 
   bubbleShadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 25, elevation: 8 },
   detailHeaderYear: { fontFamily: 'HostGrotesk_700Bold', fontSize: 16, color: Colors.primary },
   detailHeaderMonth: { fontFamily: 'HostGrotesk_400Regular', fontSize: 13, color: '#8E8E93' },
@@ -267,8 +309,10 @@ const styles = StyleSheet.create({
 });
 
 // =====================================================================
-// 3. YARDIMCI FONKSİYONLAR
+// 3. YARDIMCI FONKSİYONLAR (saf fonksiyonlar — React yok)
 // =====================================================================
+
+/** Verilen güne `offset` gün ekleyip `YYYY-MM-DD` döndürür (yerel saat). */
 function getLocalIsoDate(offset: number = 0, baseDate = new Date()) {
   const d = new Date(baseDate);
   d.setDate(d.getDate() + offset);
@@ -278,21 +322,25 @@ function getLocalIsoDate(offset: number = 0, baseDate = new Date()) {
   return `${y}-${m}-${day}`;
 }
 
+/** Bugünden `offset` gün sonrasının uzun tarih metni (ör. "Friday, April 3"). */
 function getFormattedDateDisplay(offset: number) {
   const d = new Date();
   d.setDate(d.getDate() + offset);
   return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', weekday: 'long' });
 }
 
+/** Tek bir `Date` için hafta günü + ay + gün metni. */
 function getFormattedArchiveDate(date: Date) {
   return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 }
 
+/** `YYYY-MM-DD` string → kısa liste tarihi (ör. "Apr 5, Monday"). */
 function getGroupDateDisplay(dateStr: string) {
   const d = new Date(dateStr);
   return `${d.toLocaleDateString('en-US', { month: 'short' })} ${d.getDate()}, ${d.toLocaleDateString('en-US', { weekday: 'long' })}`;
 }
 
+/** Liste hücresinde gösterilecek kısa durum yazısı (%25, Done, …). */
 function getStatusText(status: number): string {
   if (status === 0) return '';
   if (status === 0.25) return '%25';
@@ -303,9 +351,10 @@ function getStatusText(status: number): string {
 }
 
 // =====================================================================
-// 4. KÜÇÜK VE ORTAK BİLEŞENLER
+// 4. KÜÇÜK ORTAK BİLEŞENLER (Flow sayfası üstü, progress, noktalar)
 // =====================================================================
 
+/** O gün hiç sinyal yoksa “Create a signal” + alt metin gösterir. */
 function EmptyState({ isVisible, onAddTrigger }: { isVisible: boolean, onAddTrigger: () => void }) {
   if (!isVisible) return null;
   
@@ -340,6 +389,7 @@ function EmptyState({ isVisible, onAddTrigger }: { isVisible: boolean, onAddTrig
   );
 }
 
+/** Progress bar’daki tek segment; `fillAmount` 0–1 arası doluluk. */
 function ProgressBarSegment({ fillAmount }: { fillAmount: number }) {
   const widthVal = useSharedValue(0);
   useEffect(() => { widthVal.value = withTiming(fillAmount, { duration: 450 }); }, [fillAmount]);
@@ -351,6 +401,10 @@ function ProgressBarSegment({ fillAmount }: { fillAmount: number }) {
   );
 }
 
+/**
+ * “Signal ratio progress bar” başlığı + yüzde + segmentli bar.
+ * Metin ve bar sırayla (hafif gecikmeyle) aşağı kayarak görünür.
+ */
 function AnimatedProgressSection({ srValue, totalStatus, length }: any) {
   const show = length > 0;
   const contH  = useSharedValue(show ? 60 : 0);
@@ -407,6 +461,7 @@ function AnimatedProgressSection({ srValue, totalStatus, length }: any) {
   );
 }
 
+/** Dün/Bugün/Yarın yatay kaydırmada üstteki üç noktadan biri — aktif sayfa genişler. */
 function AnimatedDot({ index, scrollX, dotsOpacitySV }: { index: number; scrollX: SharedValue<number>; dotsOpacitySV: SharedValue<number> }) {
   const animatedDotStyle = useAnimatedStyle(() => {
     const inputRange = [(index - 1) * SCREEN_WIDTH, index * SCREEN_WIDTH, (index + 1) * SCREEN_WIDTH];
@@ -424,6 +479,7 @@ function AnimatedDot({ index, scrollX, dotsOpacitySV }: { index: number; scrollX
   );
 }
 
+/** Başlık/tarih satırında çok renkli gradient metin (MaskedView + LinearGradient). */
 function GradientText({ text, style, alignmentText, colors }: any) {
   if (colors.length === 1) return <Text style={[style, alignmentText, { color: colors[0] }]}>{text}</Text>;
   return (
@@ -436,8 +492,10 @@ function GradientText({ text, style, alignmentText, colors }: any) {
 }
 
 // =====================================================================
-// 5. GÖREV (TASK) SATIRLARI BİLEŞENLERİ
+// 5. GÖREV SATIRLARI — input, swipe, Track/Archive satırları
 // =====================================================================
+
+/** “Yeni sinyal” metin kutusu; sadece o gün ekleme modu açıkken görünür. */
 function InputHeader({ isAddingThisDay, taskText, setTaskText, handleSubmitTask, hasItems }: any) {
   const inputRef = useRef<TextInput>(null);
 
@@ -456,6 +514,7 @@ function InputHeader({ isAddingThisDay, taskText, setTaskText, handleSubmitTask,
   );
 }
 
+/** Eski DraggableFlatList satırı — artık kullanılmıyor; referans / silme sonrası lint için tutuldu. */
 function _TaskItemRow_unused({ item, drag, isActive, isAddingTask, actualDelete, isFirst, isLast, onSwipeStart, swiperRef, onOpenDetail }: any) {
   const heightMultiplier = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -550,6 +609,7 @@ function _TaskItemRow_unused({ item, drag, isActive, isAddingTask, actualDelete,
   );
 }
 
+/** Signals ekranı gruplarında kompakt sinyal satırı. */
 function ArchiveTaskItemRow({ item, onOpenDetail, isLast }: any) {
   const isDone = item.status === 1;
   const statusText = isDone ? 'Done' : item.status === -1 ? '' : `%${item.status * 100}`;
@@ -582,6 +642,7 @@ function ArchiveTaskItemRow({ item, onOpenDetail, isLast }: any) {
   );
 }
 
+/** Track sekmesinde seçilen günün kartında büyük sinyal satırı. */
 function TrackLargeItemRow({ item, onOpenDetail, isFirst, isLast }: any) {
   const tr = isFirst ? 18 : 0;
   const br = isLast ? 18 : 0;
@@ -607,9 +668,10 @@ function TrackLargeItemRow({ item, onOpenDetail, isFirst, isLast }: any) {
 }
 
 // =====================================================================
-// 6. TAKVİM VE AKTİVİTE BİLEŞENLERİ (TRACK EKRANI İÇİN)
+// 6. TRACK — yıllık aktivite ızgarası + yıl kartı (bubble dekor)
 // =====================================================================
 
+/** Seçilen yıl için ay ay takvim kareleri; hangi günde sinyal var renklendirilir. */
 function ActivityGrid({ baseDate, allTasks }: { baseDate: Date, allTasks: TaskItem[] }) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const todayIso = getLocalIsoDate(0);
@@ -719,6 +781,7 @@ function ActivityGrid({ baseDate, allTasks }: { baseDate: Date, allTasks: TaskIt
   )
 }
 
+/** Yıl kartındaki tek “baloncuk” — `stepSV` ile aylık geçişte konum/ölçek animasyonu. */
 function BubbleItem({ index, stepSV }: { index: number; stepSV: SharedValue<number> }) {
   const style = useAnimatedStyle(() => {
     let rawDiff = index - stepSV.value;
@@ -752,6 +815,7 @@ function BubbleItem({ index, stepSV }: { index: number; stepSV: SharedValue<numb
   );
 }
 
+/** Alt alta 6 bubble — YearCard arka planında sürekli döngüsel animasyon. */
 function BubbleCarousel({ stepSV }: { stepSV: SharedValue<number> }) {
   const items = useMemo(() => Array.from({ length: 6 }).map((_, i) => i), []);
   return (
@@ -761,6 +825,7 @@ function BubbleCarousel({ stepSV }: { stepSV: SharedValue<number> }) {
   );
 }
 
+/** Signals → Yearly: tek yıl satırı; ay seçici + istatistik + BubbleCarousel. */
 function YearCard({ year, tasksForYear, onOpenMonthDetail }: any) {
   const currentMonthIndex = new Date().getMonth();
   const [selectedMonth, setSelectedMonth] = useState(currentMonthIndex);
@@ -788,11 +853,54 @@ function YearCard({ year, tasksForYear, onOpenMonthDetail }: any) {
   const completed = tasksForMonth.reduce((sum: number, t: TaskItem) => sum + (t.status === -1 ? 0 : t.status), 0);
   const ratio = total > 0 ? Math.round((completed / total) * 100) : 0;
 
+  const changeMonthBy = useCallback((direction: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedMonth((m) => {
+      let nm = m + direction;
+      if (nm > 11) nm = 0;
+      if (nm < 0) nm = 11;
+      return nm;
+    });
+    setStep((prev) => prev + direction);
+  }, []);
+
+  const openMonthDetail = useCallback(() => {
+    onOpenMonthDetail(year, selectedMonth, tasksForMonth);
+  }, [year, selectedMonth, tasksForMonth, onOpenMonthDetail]);
+
+  const bubbleAreaGesture = useMemo(
+    () =>
+      Gesture.Exclusive(
+        Gesture.Tap().onEnd(() => {
+          runOnJS(openMonthDetail)();
+        }),
+        Gesture.Pan()
+          .minDistance(14)
+          .failOffsetY([-26, 26])
+          .activeOffsetX([-12, 12])
+          .onEnd((e) => {
+            const tx = e.translationX;
+            if (Math.abs(tx) > 28) {
+              runOnJS(changeMonthBy)(tx < 0 ? 1 : -1);
+            }
+          })
+      ),
+    [openMonthDetail, changeMonthBy]
+  );
+
   return (
     <View style={styles.yearCardContainer}>
       <LinearGradient colors={['#F2F1F6', '#FFFFFF']} start={{ x: 0, y: 0.5 }} end={{ x: 0.8, y: 0.5 }} style={StyleSheet.absoluteFill} />
       <View style={styles.yearCardContent}>
         <BubbleCarousel stepSV={stepSV} />
+        <GestureDetector gesture={bubbleAreaGesture}>
+          <View
+            style={styles.yearBubbleGestureLayer}
+            collapsable={false}
+            accessibilityRole="button"
+            accessibilityLabel={`${MONTH_NAMES[selectedMonth]} ayı sinyalleri`}
+          />
+        </GestureDetector>
         <View style={styles.yearCardLeft} pointerEvents="box-none">
           <Text style={styles.yearCardTitle}>{year.toString()}</Text>
           <View style={styles.monthSelectorRow}>
@@ -813,6 +921,11 @@ function YearCard({ year, tasksForYear, onOpenMonthDetail }: any) {
   );
 }
 
+// =====================================================================
+// 7. ALT SEKME — Flow/Track/Signals ikonları + LiquidBottomNav + FAB
+// =====================================================================
+
+/** Flow sekmesi ikonundaki tek dikey çizgi; yatay gün kaydırmasına göre boyanıp uzar. */
 function FlowLine({ index, homeScrollX, isActive }: { index: number, homeScrollX: SharedValue<number>, isActive: boolean }) {
   const lineStyle = useAnimatedStyle(() => {
     const targetX = index * SCREEN_WIDTH;
@@ -860,6 +973,10 @@ function SignalsIndicator({ isActive }: { isActive: boolean }) {
   );
 }
 
+/**
+ * Alt cam/pill bar: aktif sekme balonu, uzun basılı sürükleme ile sekme değiştirme,
+ * sağda + FAB. Çift BlurView + degrade ile cam hissi (Expo Go dahil tutarlı).
+ */
 function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger, onSheetTrigger, homeScrollX }: any) {
   const activeBubbleX  = useSharedValue(0);
   const bubbleScale    = useSharedValue(1);
@@ -926,136 +1043,134 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
     );
   };
 
-  const glassAvailable = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
+  const navBlurMain = Platform.OS === 'ios' ? 92 : 56;
+  const navBlurDeep = Platform.OS === 'ios' ? 42 : 28;
 
   return (
     <View style={styles.bottomBarWrapper} pointerEvents="box-none">
-      {glassAvailable ? (
-        /* ── Real Liquid Glass (iOS 26+) ── */
-        <GlassContainer spacing={12} style={styles.glassContainerRow}>
-
-          {/* Nav pill — GlassView is the pill itself, children render inside */}
-          <GlassView
-            style={styles.navShadowWrapper}
-            glassEffectStyle="regular"
-            colorScheme="light"
-          >
-            {/* Active bubble — matches SVG: white 65% + color-burn + darken layers */}
-            <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
-              {/* Base: rgba(255,255,255,0.65) matching SVG */}
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: 18 }]} />
-              {/* Color-burn layer: #DDDDDD approx */}
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(221,221,221,0.30)', borderRadius: 18 }]} />
-              {/* Subtle top highlight line */}
-              <View style={styles.navActiveBubbleHighlight} />
-            </Animated.View>
-            {/* Tab buttons — wrapped in drag gesture */}
-            <GestureDetector gesture={dragGesture}>
-              <View style={styles.navTabsRow}>
-                {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
-                {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
-                {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
-              </View>
-            </GestureDetector>
-          </GlassView>
-
-          {/* FAB */}
-          <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }}
-            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }}
-            delayLongPress={250}
-            disabled={isFabDisabled}
-            activeOpacity={0.85}
-          >
-            <GlassView
-              style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton]}
-              glassEffectStyle="regular"
-              isInteractive
-              colorScheme="light"
-            >
-              <View style={styles.fabIconWrapper}>
-                <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
-              </View>
-            </GlassView>
-          </TouchableOpacity>
-
-        </GlassContainer>
-      ) : (
-        /* ── BlurView fallback (Expo Go / iOS < 26) ── */
-        <View style={styles.glassContainerRow}>
-
-          {/* Nav pill */}
-          <View style={styles.navShadowWrapper}>
+      <View style={styles.glassContainerRow}>
+        {/* Nav pill — çift blur + üst parlama + ince çerçeve */}
+        <View style={[styles.navShadowWrapper, { overflow: 'hidden', borderRadius: NEW_NAV_HEIGHT / 2 }]}>
+          <BlurView
+            intensity={navBlurMain}
+            tint="light"
+            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+            style={StyleSheet.absoluteFill}
+          />
+          <BlurView
+            intensity={navBlurDeep}
+            tint="light"
+            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+            style={[StyleSheet.absoluteFill, { opacity: Platform.OS === 'ios' ? 0.78 : 1 }]}
+            pointerEvents="none"
+          />
+          <LinearGradient
+            colors={['rgba(255,255,255,0.62)', 'rgba(255,255,255,0.14)', 'rgba(255,255,255,0.38)']}
+            locations={[0, 0.45, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={[StyleSheet.absoluteFill, { borderRadius: NEW_NAV_HEIGHT / 2 }]}
+            pointerEvents="none"
+          />
+          <LinearGradient
+            colors={['rgba(255,255,255,0.95)', 'rgba(255,255,255,0)']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 0.22 }}
+            style={[StyleSheet.absoluteFill, { borderRadius: NEW_NAV_HEIGHT / 2 }]}
+            pointerEvents="none"
+          />
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                borderRadius: NEW_NAV_HEIGHT / 2,
+                borderWidth: StyleSheet.hairlineWidth * 1.5,
+                borderColor: 'rgba(255,255,255,0.72)',
+              },
+            ]}
+          />
+          <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
             <BlurView
-              intensity={40}
-              tint="systemChromeMaterialLight"
-              style={[StyleSheet.absoluteFill, { borderRadius: NEW_NAV_HEIGHT / 2, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.6)' }]}
-            >
-              <LinearGradient
-                colors={['rgba(255,255,255,0.45)', 'rgba(255,255,255,0)']}
-                start={[0.5, 0]}
-                end={[0.5, 0.5]}
-                style={[StyleSheet.absoluteFill, { borderRadius: NEW_NAV_HEIGHT / 2 }]}
-                pointerEvents="none"
-              />
-            </BlurView>
-            {/* Active bubble — SVG style: white 65% + #DDDDDD color-burn + #F7F7F7 darken */}
-            <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
-              <BlurView
-                intensity={18}
-                tint="systemChromeMaterialLight"
-                style={[StyleSheet.absoluteFill, { borderRadius: 18, overflow: 'hidden' }]}
-              />
-              {/* rgba(255,255,255,0.65) base */}
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: 18 }]} />
-              {/* rgba(221,221,221,0.30) color-burn approximation */}
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(221,221,221,0.30)', borderRadius: 18 }]} />
-              {/* Border — inner highlight */}
-              <View style={[StyleSheet.absoluteFill, { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.85)' }]} />
-              <View style={styles.navActiveBubbleHighlight} />
-            </Animated.View>
-            <GestureDetector gesture={dragGesture}>
-              <View style={styles.navTabsRow}>
-                {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
-                {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
-                {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
-              </View>
-            </GestureDetector>
-          </View>
-
-          {/* FAB */}
-          <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }}
-            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }}
-            delayLongPress={250}
-            disabled={isFabDisabled}
-            activeOpacity={0.85}
-            style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton]}
-          >
-            <BlurView
-              intensity={40}
-              tint="systemChromeMaterialLight"
-              style={[StyleSheet.absoluteFill, { borderRadius: 25, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.6)' }]}
-            >
-              <LinearGradient
-                colors={['rgba(255,255,255,0.45)', 'rgba(255,255,255,0)']}
-                start={[0.5, 0]}
-                end={[0.5, 0.6]}
-                style={[StyleSheet.absoluteFill, { borderRadius: 25 }]}
-                pointerEvents="none"
-              />
-            </BlurView>
-            <View style={styles.fabIconWrapper}>
-              <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
+              intensity={Platform.OS === 'ios' ? 36 : 22}
+              tint="light"
+              style={[StyleSheet.absoluteFill, { borderRadius: 18, overflow: 'hidden' }]}
+            />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.62)', borderRadius: 18 }]} />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(221,221,221,0.26)', borderRadius: 18 }]} />
+            <View style={[StyleSheet.absoluteFill, { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.9)' }]} />
+            <View style={styles.navActiveBubbleHighlight} />
+          </Animated.View>
+          <GestureDetector gesture={dragGesture}>
+            <View style={styles.navTabsRow}>
+              {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
+              {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
+              {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
             </View>
-          </TouchableOpacity>
-
+          </GestureDetector>
         </View>
-      )}
+
+        <TouchableOpacity
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }}
+          onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }}
+          delayLongPress={250}
+          disabled={isFabDisabled}
+          activeOpacity={0.85}
+          style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton, { overflow: 'hidden', borderRadius: 25 }]}
+        >
+          <BlurView
+            intensity={Platform.OS === 'ios' ? 88 : 52}
+            tint="light"
+            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+            style={StyleSheet.absoluteFill}
+          />
+          <BlurView
+            intensity={Platform.OS === 'ios' ? 38 : 24}
+            tint="light"
+            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+            style={[StyleSheet.absoluteFill, { opacity: 0.8 }]}
+            pointerEvents="none"
+          />
+          <LinearGradient
+            colors={['rgba(255,255,255,0.58)', 'rgba(255,255,255,0.1)', 'rgba(255,255,255,0.4)']}
+            locations={[0, 0.5, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={[StyleSheet.absoluteFill, { borderRadius: 25 }]}
+            pointerEvents="none"
+          />
+          <LinearGradient
+            colors={['rgba(255,255,255,0.92)', 'rgba(255,255,255,0)']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 0.35 }}
+            style={[StyleSheet.absoluteFill, { borderRadius: 25 }]}
+            pointerEvents="none"
+          />
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                borderRadius: 25,
+                borderWidth: StyleSheet.hairlineWidth * 1.5,
+                borderColor: 'rgba(255,255,255,0.75)',
+              },
+            ]}
+          />
+          <View style={styles.fabIconWrapper}>
+            <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
+          </View>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
+// =====================================================================
+// 8. SHEET / MODAL — sinyal detayı, mevcut sinyal ekleme listesi
+// =====================================================================
+
+/** Sinyale dokununca: not, durum slider’ı, kaydet → `onUpdateTask` ile üst state + API. */
 function SignalDetailSheet({ visible, onClose, task, onUpdateTask, isReadOnly }: { visible: boolean, onClose: () => void, task: TaskItem | null, onUpdateTask: (id: string, updates: Partial<TaskItem>) => void, isReadOnly?: boolean }) {
   const translateY = useSharedValue(SCREEN_HEIGHT);
   const sliderX = useSharedValue(0);
@@ -1208,6 +1323,7 @@ function SignalDetailSheet({ visible, onClose, task, onUpdateTask, isReadOnly }:
   );
 }
 
+/** + sheet içinde tek satır — seçim modunda checkbox, normalde tıkla ekle. */
 function ExistingSignalRowSheet({ text, isSelectionMode, isSelected, isDisabled, isLast, onPress }: any) {
   const opacity = useSharedValue(1);
   const modeAnim = useSharedValue(isSelectionMode ? 1 : 0); 
@@ -1282,6 +1398,7 @@ function ExistingSignalRowSheet({ text, isSelectionMode, isSelected, isDisabled,
   );
 }
 
+/** FAB uzun bas → bugüne daha önce kullanılmış sinyal metinlerinden seç. */
 function AddExistingSignalSheet({ visible, onClose, allTasks, currentDayCount, onAdd }: any) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -1353,6 +1470,7 @@ function AddExistingSignalSheet({ visible, onClose, allTasks, currentDayCount, o
   );
 }
 
+/** Signals yıllık karttan aya tıklanınca tam ekran ay özeti. */
 function MonthlyDetailOverlay({ visible, onClose, year, monthIndex, tasks, onOpenDetail }: any) {
   const translateY = useSharedValue(SCREEN_HEIGHT);
   
@@ -1444,6 +1562,11 @@ function MonthlyDetailOverlay({ visible, onClose, year, monthIndex, tasks, onOpe
   );
 }
 
+// =====================================================================
+// 9. ANA EKRANLAR — Signals (yıllık) + Track (haftalık arşiv)
+// =====================================================================
+
+/** Alt sekme “Signals”: yıllara göre gruplu liste + ay detay overlay. */
 function YearSignalsScreen({ allTasks, onOpenDetail }: { allTasks: TaskItem[], onOpenDetail: (task: TaskItem) => void }) {
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailData, setDetailData] = useState({ year: '', monthIndex: 0, tasks: [] as TaskItem[] });
@@ -1488,6 +1611,7 @@ function YearSignalsScreen({ allTasks, onOpenDetail }: { allTasks: TaskItem[], o
   );
 }
 
+/** Alt sekme “Track”: haftalık takvim şeridi + seçilen günün sinyalleri + ActivityGrid. */
 function MainArchiveScreen({ allTasks, onOpenDetail }: { allTasks: TaskItem[], onOpenDetail: (task: TaskItem, readOnly?: boolean) => void }) {
   
   const [baseDate, setBaseDate] = useState(() => {
@@ -1646,10 +1770,15 @@ function MainArchiveScreen({ allTasks, onOpenDetail }: { allTasks: TaskItem[], o
 }
 
 // =====================================================================
-// CUSTOM DRAG-AND-DROP (replaces react-native-draggable-flatlist)
+// 10. SÜRÜKLE-SIRALA — özel liste (DraggableFlatList yerine Reanimated + Gesture)
 // =====================================================================
+
 const SORT_H = 52;
 
+/**
+ * Bir günün `tasks` listesini mutlak konumlu satırlar olarak çizer.
+ * Ortak `dragFrom` / `dragTo` / `dragDy` ile hangi satırın sürüklendiğini koordine eder.
+ */
 function SortableList({ tasks, onReorder, isEditMode, isAddingTask, actualDelete, onSwipeStart, rowRefs, onOpenDetail }: any) {
   const setIsEditMode = React.useContext(EditModeSetterContext);
   const n = tasks.length;
@@ -1717,6 +1846,10 @@ function SortableList({ tasks, onReorder, isEditMode, isAddingTask, actualDelete
   );
 }
 
+/**
+ * Tek sinyal satırı: swipe sil, uzun basınca sürükle, düzenleme modunda sıra ikonu.
+ * `posStyle` ile aktif satır parmağı takip eder; diğerleri `dragTo`’ya göre kayar.
+ */
 function SortableTaskItem({ item, index, n, dragFrom, dragTo, dragDy, isEditMode, isAddingTask, isFirst, isLast, swiperRef, onSwipeStart, actualDelete, onOpenDetail, onDragStart, onDragEnd }: any) {
   const setIsEditMode = React.useContext(EditModeSetterContext);
   const [isSwiped, setIsSwiped] = useState(false);
@@ -1912,6 +2045,10 @@ function SortableTaskItem({ item, index, n, dragFrom, dragTo, dragDy, isEditMode
   );
 }
 
+/**
+ * Flow sekmesinin gövdesi: yatay FlatList ile Dün / Bugün / Yarın sayfaları.
+ * Her sayfada o güne ait `SortableList`, üstte progress ve gün başlığı.
+ */
 const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTasks, isAddingGlobal, setIsAddingGlobal, currentDayOffset, setCurrentDayOffset, homeScrollX, onOpenDetail }: any) {
   const [taskText, setTaskText] = useState('');
   const isEditMode = React.useContext(EditModeContext);
@@ -1990,8 +2127,8 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
             );
           }
         })
-        .catch(() => {
-          // Hata durumunda optimistik eklemeyi geri al
+        .catch((err: unknown) => {
+          console.warn('Sinyal oluşturma hatası:', err);
           setAllTasks((prev: TaskItem[]) => prev.filter(t => t.id !== tempId));
         });
     }
@@ -2081,6 +2218,10 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
   );
 });
 
+/**
+ * Uygulama kökü: font + splash, onboarding bayrağı, Supabase anon oturum,
+ * görev listesi state’i, üç yatay ekran (Flow / Track / Signals), alt nav, sheet’ler.
+ */
 export default function App() {
   const [isEditMode, setIsEditMode] = React.useState(false);
   const [currentScreen, setCurrentScreen] = useState<number>(TAB_FLOW);

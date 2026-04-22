@@ -1,3 +1,7 @@
+/**
+ * Supabase istemcisi — Auth (anonim oturum dahil) ve JWT üretimi buradan.
+ * URL / anon key: `.env` içindeki EXPO_PUBLIC_* değişkenleri (Expo bunları bundle’a gömer).
+ */
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 

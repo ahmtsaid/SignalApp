@@ -1015,13 +1015,16 @@ function SignalsIndicator({ isActive }: { isActive: boolean }) {
  * iOS: expo-glass-effect (Liquid Glass); Android ve diğerleri: güçlü BlurView fallback.
  */
 function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger, onSheetTrigger, homeScrollX }: any) {
-  const activeBubbleX  = useSharedValue(0);
-  const bubbleScale    = useSharedValue(1);
-  const bubbleFillOp   = useSharedValue(1);   // 1 = normal, 0 = fully transparent
-  const currentTabSV   = useSharedValue(currentTab);
+  const activeBubbleX   = useSharedValue(0);
+  const bubbleScale     = useSharedValue(1);
+  const bubbleRotateDeg = useSharedValue(0);
+  const bubbleFillOp    = useSharedValue(1);   // 1 = normal, 0 = fully transparent
+  const currentTabSV    = useSharedValue(currentTab);
+  const fabScale        = useSharedValue(1);
 
   // Apple spring config — snappy with subtle natural bounce
   const SPRING = { damping: 26, stiffness: 340, mass: 0.75 };
+  const FAB_ELASTIC_SPRING = { damping: 14, stiffness: 240, mass: 0.55 };
 
   useEffect(() => {
     activeBubbleX.value = withSpring(currentTab * TAB_WIDTH, SPRING);
@@ -1032,36 +1035,47 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
     opacity: bubbleFillOp.value,
     transform: [
       { translateX: activeBubbleX.value },
+      { rotateZ: `${bubbleRotateDeg.value}deg` },
       { scale: bubbleScale.value },
     ],
   }));
 
-  // Hold 300 ms → bubble grows + becomes translucent (liquid glass feel), then drag
+  const fabAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: fabScale.value }],
+  }));
+
+  /** Anında sürükleme + sürüklerken hafif squash / dönüş (liquid) */
   const dragGesture = Gesture.Pan()
-    .activateAfterLongPress(300)
-    .onStart(() => {
-      // Long-press activated: expand + liquid glass transparency
-      bubbleScale.value  = withSpring(1.10, { damping: 18, stiffness: 400 });
-      bubbleFillOp.value = withTiming(0.35, { duration: 200 });
-      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
+    .minDistance(2)
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-22, 22])
+    .onBegin(() => {
+      bubbleScale.value = withSpring(1.11, { damping: 17, stiffness: 420 });
+      bubbleFillOp.value = withTiming(0.34, { duration: 170 });
+      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
     })
     .onUpdate((e) => {
       const startX = currentTabSV.value * TAB_WIDTH;
       activeBubbleX.value = clamp(startX + e.translationX, 0, (TAB_COUNT - 1) * TAB_WIDTH);
+      const vx = e.velocityX;
+      bubbleRotateDeg.value = clamp(vx / 380, -7, 7);
+      const dragAmt = Math.abs(e.translationX);
+      bubbleScale.value = 1.11 + Math.min(dragAmt / 240, 0.07);
     })
-    .onEnd((e) => {
+    .onEnd(() => {
       const startX = currentTabSV.value * TAB_WIDTH;
-      const snapped = Math.round(clamp((startX + e.translationX) / TAB_WIDTH, 0, TAB_COUNT - 1));
-      activeBubbleX.value  = withSpring(snapped * TAB_WIDTH, SPRING);
-      bubbleScale.value    = withSpring(1.0, SPRING);
-      bubbleFillOp.value   = withTiming(1.0, { duration: 250 });
+      const snapped = Math.round(clamp(activeBubbleX.value / TAB_WIDTH, 0, TAB_COUNT - 1));
+      activeBubbleX.value = withSpring(snapped * TAB_WIDTH, SPRING);
+      bubbleRotateDeg.value = withSpring(0, SPRING);
+      bubbleScale.value = withSpring(1.0, SPRING);
+      bubbleFillOp.value = withTiming(1.0, { duration: 240 });
       runOnJS(onChangeTab)(snapped);
       runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
     })
     .onFinalize(() => {
-      // Restore if gesture was cancelled
-      bubbleScale.value  = withSpring(1.0, SPRING);
-      bubbleFillOp.value = withTiming(1.0, { duration: 250 });
+      bubbleRotateDeg.value = withSpring(0, SPRING);
+      bubbleScale.value = withSpring(1.0, SPRING);
+      bubbleFillOp.value = withTiming(1.0, { duration: 220 });
     });
 
   const renderTab = (tabIndex: number, label: string, iconName: any, customIcon?: React.ReactNode) => {
@@ -1107,24 +1121,40 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
               </View>
             </GestureDetector>
           </GlassView>
-          <TouchableOpacity
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }}
-            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }}
-            delayLongPress={250}
-            disabled={isFabDisabled}
-            activeOpacity={0.85}
-          >
-            <GlassView
-              style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton]}
-              glassEffectStyle="regular"
-              isInteractive
-              colorScheme="light"
+          <Animated.View style={fabAnimStyle}>
+            <TouchableOpacity
+              activeOpacity={1}
+              disabled={isFabDisabled}
+              delayLongPress={260}
+              onPress={() => {
+                fabScale.value = withSpring(1, SPRING);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                runOnJS(onAddTrigger)();
+              }}
+              onPressIn={() => {
+                if (!isFabDisabled) fabScale.value = withSpring(1.08, { damping: 18, stiffness: 440 });
+              }}
+              onPressOut={() => {
+                fabScale.value = withSpring(1, SPRING);
+              }}
+              onLongPress={() => {
+                fabScale.value = withSpring(1.28, FAB_ELASTIC_SPRING);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                runOnJS(onSheetTrigger)();
+              }}
             >
-              <View style={styles.fabIconWrapper}>
-                <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
-              </View>
-            </GlassView>
-          </TouchableOpacity>
+              <GlassView
+                style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton]}
+                glassEffectStyle="regular"
+                isInteractive
+                colorScheme="light"
+              >
+                <View style={styles.fabIconWrapper}>
+                  <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
+                </View>
+              </GlassView>
+            </TouchableOpacity>
+          </Animated.View>
         </GlassContainer>
       ) : (
       <View style={styles.glassContainerRow}>
@@ -1189,14 +1219,29 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
           </GestureDetector>
         </View>
 
-        <TouchableOpacity
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }}
-          onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }}
-          delayLongPress={250}
-          disabled={isFabDisabled}
-          activeOpacity={0.85}
-          style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton, { overflow: 'hidden', borderRadius: 25 }]}
-        >
+        <Animated.View style={fabAnimStyle}>
+          <TouchableOpacity
+            activeOpacity={1}
+            disabled={isFabDisabled}
+            delayLongPress={260}
+            style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton, { overflow: 'hidden', borderRadius: 25 }]}
+            onPress={() => {
+              fabScale.value = withSpring(1, SPRING);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              runOnJS(onAddTrigger)();
+            }}
+            onPressIn={() => {
+              if (!isFabDisabled) fabScale.value = withSpring(1.08, { damping: 18, stiffness: 440 });
+            }}
+            onPressOut={() => {
+              fabScale.value = withSpring(1, SPRING);
+            }}
+            onLongPress={() => {
+              fabScale.value = withSpring(1.28, FAB_ELASTIC_SPRING);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+              runOnJS(onSheetTrigger)();
+            }}
+          >
           <BlurView
             intensity={Platform.OS === 'ios' ? 88 : 52}
             tint="light"
@@ -1240,6 +1285,7 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
             <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
           </View>
         </TouchableOpacity>
+        </Animated.View>
       </View>
       )}
     </View>

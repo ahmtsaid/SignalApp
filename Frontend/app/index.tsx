@@ -95,6 +95,9 @@ const NEW_NAV_HEIGHT = 64;
 const BUBBLE_SIZE = 56;
 const CONTAINER_PADDING_H = 8;
 const TAB_WIDTH = (NEW_NAV_WIDTH - (CONTAINER_PADDING_H * 2)) / TAB_COUNT;
+/** Aktif sekme balonu — FAB benzeri oval uçlar (yüksekliğin yarısı = kapsül) */
+const NAV_ACTIVE_BUBBLE_HEIGHT = NEW_NAV_HEIGHT - 8;
+const NAV_ACTIVE_BUBBLE_RADIUS = NAV_ACTIVE_BUBBLE_HEIGHT / 2;
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -170,8 +173,8 @@ const styles = StyleSheet.create({
     top: 4,
     left: CONTAINER_PADDING_H,
     width: TAB_WIDTH,
-    height: NEW_NAV_HEIGHT - 8,
-    borderRadius: 18,
+    height: NAV_ACTIVE_BUBBLE_HEIGHT,
+    borderRadius: NAV_ACTIVE_BUBBLE_RADIUS,
     overflow: 'hidden',
     // SVG drop shadow: dy=8, blur=20, opacity=0.12
     shadowColor: '#000',
@@ -1027,7 +1030,6 @@ function SignalsIndicator({ isActive }: { isActive: boolean }) {
 function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger, onSheetTrigger, homeScrollX }: any) {
   const activeBubbleX   = useSharedValue(0);
   const bubbleScale     = useSharedValue(1);
-  const bubbleRotateDeg = useSharedValue(0);
   const bubbleFillOp    = useSharedValue(1);   // 1 = normal, 0 = fully transparent
   const currentTabSV    = useSharedValue(currentTab);
   const fabScale        = useSharedValue(1);
@@ -1041,34 +1043,33 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
     currentTabSV.value  = currentTab;
   }, [currentTab]);
 
+  const FAB_PRESS_IN_SPRING = { damping: 18, stiffness: 440 };
+
   const bubbleAnimStyle = useAnimatedStyle(() => ({
     opacity: bubbleFillOp.value,
-    transform: [
-      { translateX: activeBubbleX.value },
-      { rotateZ: `${bubbleRotateDeg.value}deg` },
-      { scale: bubbleScale.value },
-    ],
+    /* + FAB gibi yalnızca scale — ekstra rotasyon yok */
+    transform: [{ translateX: activeBubbleX.value }, { scale: bubbleScale.value }],
   }));
 
   const fabAnimStyle = useAnimatedStyle(() => ({
     transform: [{ scale: fabScale.value }],
   }));
 
-  /** Uzun basışta FAB ile aynı sıvı elastik hissi (+ anında kaydırma ile birlikte) */
+  /** Uzun basış — + ile aynı ölçek / yay (1.28 + FAB_ELASTIC_SPRING) */
   const bubbleLiquidHoldGesture = useMemo(
     () =>
       Gesture.LongPress()
         .minDuration(210)
         .maxDistance(14)
         .onStart(() => {
-          bubbleScale.value = withSpring(1.26, FAB_ELASTIC_SPRING);
-          bubbleFillOp.value = withTiming(0.2, { duration: 200 });
-          runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
+          bubbleScale.value = withSpring(1.28, FAB_ELASTIC_SPRING);
+          bubbleFillOp.value = withTiming(0.22, { duration: 220 });
+          runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy);
         }),
     []
   );
 
-  /** Pan önce: hızlı kaydırma; Tap benzeri kısa dokunuş Pan’a düşer */
+  /** Kaydırma — + onPressIn (1.08) ile aynı yay; sürüklerken hafif büyüme */
   const dragGesture = useMemo(
     () =>
       Gesture.Pan()
@@ -1076,29 +1077,25 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
         .activeOffsetX([-10, 10])
         .failOffsetY([-22, 22])
         .onBegin(() => {
-          bubbleScale.value = withSpring(1.11, { damping: 17, stiffness: 420 });
-          bubbleFillOp.value = withTiming(0.32, { duration: 170 });
+          bubbleScale.value = withSpring(1.08, FAB_PRESS_IN_SPRING);
+          bubbleFillOp.value = withTiming(0.28, { duration: 160 });
           runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
         })
         .onUpdate((e) => {
           const startX = currentTabSV.value * TAB_WIDTH;
           activeBubbleX.value = clamp(startX + e.translationX, 0, (TAB_COUNT - 1) * TAB_WIDTH);
-          const vx = e.velocityX;
-          bubbleRotateDeg.value = clamp(vx / 380, -7, 7);
           const dragAmt = Math.abs(e.translationX);
-          bubbleScale.value = 1.11 + Math.min(dragAmt / 240, 0.07);
+          bubbleScale.value = 1.08 + Math.min(dragAmt / 260, 0.055);
         })
         .onEnd(() => {
           const snapped = Math.round(clamp(activeBubbleX.value / TAB_WIDTH, 0, TAB_COUNT - 1));
           activeBubbleX.value = withSpring(snapped * TAB_WIDTH, SPRING);
-          bubbleRotateDeg.value = withSpring(0, SPRING);
           bubbleScale.value = withSpring(1.0, SPRING);
           bubbleFillOp.value = withTiming(1.0, { duration: 240 });
           runOnJS(onChangeTab)(snapped);
           runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
         })
         .onFinalize(() => {
-          bubbleRotateDeg.value = withSpring(0, SPRING);
           bubbleScale.value = withSpring(1.0, SPRING);
           bubbleFillOp.value = withTiming(1.0, { duration: 220 });
         }),
@@ -1133,10 +1130,10 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
 
   const navGlassBubbleOnly = (
     <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(175,175,185,0.92)', borderRadius: 18 }]} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(120,120,132,0.28)', borderRadius: 18 }]} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 18 }]} />
-      <View style={styles.navActiveBubbleHighlight} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(175,175,185,0.92)', borderRadius: NAV_ACTIVE_BUBBLE_RADIUS }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(120,120,132,0.28)', borderRadius: NAV_ACTIVE_BUBBLE_RADIUS }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: NAV_ACTIVE_BUBBLE_RADIUS }]} />
+      <View style={[styles.navActiveBubbleHighlight, { left: 14, right: 14 }]} />
     </Animated.View>
   );
 
@@ -1236,12 +1233,12 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
             <BlurView
               intensity={Platform.OS === 'ios' ? 36 : 22}
               tint="light"
-              style={[StyleSheet.absoluteFill, { borderRadius: 18, overflow: 'hidden' }]}
+              style={[StyleSheet.absoluteFill, { borderRadius: NAV_ACTIVE_BUBBLE_RADIUS, overflow: 'hidden' }]}
             />
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(175,175,185,0.88)', borderRadius: 18 }]} />
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(95,95,110,0.22)', borderRadius: 18 }]} />
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 18 }]} />
-            <View style={[StyleSheet.absoluteFill, { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.75)' }]} />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(175,175,185,0.88)', borderRadius: NAV_ACTIVE_BUBBLE_RADIUS }]} />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(95,95,110,0.22)', borderRadius: NAV_ACTIVE_BUBBLE_RADIUS }]} />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: NAV_ACTIVE_BUBBLE_RADIUS }]} />
+            <View style={[StyleSheet.absoluteFill, { borderRadius: NAV_ACTIVE_BUBBLE_RADIUS, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.75)' }]} />
             <View style={styles.navActiveBubbleHighlight} />
           </Animated.View>
           <GestureDetector gesture={navBubbleGesture}>

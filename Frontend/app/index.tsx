@@ -19,6 +19,7 @@ import { Canvas, center, RoundedRect } from '@shopify/react-native-skia';
 import { useDerivedValue } from 'react-native-reanimated';
 import Svg, { Defs, RadialGradient, LinearGradient as SvgLinearGradient, Rect, Stop, Circle } from 'react-native-svg';
 import { BlurView } from 'expo-blur';
+import { GlassView, GlassContainer } from 'expo-glass-effect';
 
 /**
  * =============================================================================
@@ -264,13 +265,13 @@ const styles = StyleSheet.create({
   signalsWrapper: { flex: 1 },
   yearCardContainer: { marginHorizontal: 16, height: 85, borderRadius: 20, overflow: 'hidden', marginBottom: 16, backgroundColor: '#fff', ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10 }, android: { elevation: 3 } }) },
   yearCardContent: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, position: 'relative' },
-  yearCardLeft: { flex: 1, justifyContent: 'center', zIndex: 2 }, 
+  yearCardLeft: { flex: 1, justifyContent: 'center', zIndex: 3 }, 
   yearCardTitle: { fontFamily: 'HostGrotesk_700Bold', fontSize: 24, color: '#1A1A1A', marginBottom: 2 },
   monthSelectorRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   yearCardMonth: { fontFamily: 'HostGrotesk_400Regular', fontSize: 12, color: '#666', marginHorizontal: 4 },
   yearCardStats: { fontFamily: 'HostGrotesk_400Regular', fontSize: 10, color: '#999', marginBottom:6 , marginTop : -2},
-  bubblesWrapper: { position: 'absolute', right: 0, left: 0, top: 0, bottom: 0, zIndex: 0 },
-  /** YearCard: bubble görselinin üstünde dokunma + yatay kaydırma (sol metin alanına dokunulmaz) */
+  bubblesWrapper: { position: 'absolute', right: 0, left: 0, top: 0, bottom: 0, zIndex: 2 },
+  /** YearCard: yatay kaydırma — baloncukların altında (tıklama baloncuklarda) */
   yearBubbleGestureLayer: {
     position: 'absolute',
     right: 0,
@@ -781,8 +782,22 @@ function ActivityGrid({ baseDate, allTasks }: { baseDate: Date, allTasks: TaskIt
   )
 }
 
+/** Seçili ay + carousel `step` → baloncuk indeksinin gösterdiği takvim ayı (0–11). */
+function monthIndexForBubble(bubbleIndex: number, selectedMonth: number, step: number): number {
+  const norm = ((step % 6) + 6) % 6;
+  return (selectedMonth + bubbleIndex - norm + 12) % 12;
+}
+
 /** Yıl kartındaki tek “baloncuk” — `stepSV` ile aylık geçişte konum/ölçek animasyonu. */
-function BubbleItem({ index, stepSV }: { index: number; stepSV: SharedValue<number> }) {
+function BubbleItem({
+  index,
+  stepSV,
+  onPress,
+}: {
+  index: number;
+  stepSV: SharedValue<number>;
+  onPress?: () => void;
+}) {
   const style = useAnimatedStyle(() => {
     let rawDiff = index - stepSV.value;
     let diff = ((rawDiff % 6) + 6) % 6; 
@@ -796,7 +811,7 @@ function BubbleItem({ index, stepSV }: { index: number; stepSV: SharedValue<numb
 
   return (
     <Animated.View style={[style, styles.bubbleShadow]}>
-      <Svg height="100%" width="100%">
+      <Svg height="100%" width="100%" pointerEvents="none">
         <Defs>
           <RadialGradient id={`sphereGradient-${index}`} cx="30%" cy="50%" rx="60%" ry="60%" fx="30%" fy="20%">
             <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
@@ -811,16 +826,37 @@ function BubbleItem({ index, stepSV }: { index: number; stepSV: SharedValue<numb
         <Circle cx="50%" cy="50%" r="50%" fill={`url(#sphereGradient-${index})`} />
         <Circle cx="50%" cy="50%" r="50%" fill={`url(#diffuseLight-${index})`} />
       </Svg>
+      {onPress ? (
+        <Pressable
+          onPress={onPress}
+          style={[StyleSheet.absoluteFill, { borderRadius: 999 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Ay sinyallerini aç"
+        />
+      ) : null}
     </Animated.View>
   );
 }
 
 /** Alt alta 6 bubble — YearCard arka planında sürekli döngüsel animasyon. */
-function BubbleCarousel({ stepSV }: { stepSV: SharedValue<number> }) {
+function BubbleCarousel({
+  stepSV,
+  onBubblePress,
+}: {
+  stepSV: SharedValue<number>;
+  onBubblePress?: (bubbleIndex: number) => void;
+}) {
   const items = useMemo(() => Array.from({ length: 6 }).map((_, i) => i), []);
   return (
-    <View style={styles.bubblesWrapper} pointerEvents="none">
-      {items.map(i => (<BubbleItem key={i} index={i} stepSV={stepSV} />))}
+    <View style={styles.bubblesWrapper} pointerEvents="box-none">
+      {items.map((i) => (
+        <BubbleItem
+          key={i}
+          index={i}
+          stepSV={stepSV}
+          onPress={onBubblePress ? () => onBubblePress(i) : undefined}
+        />
+      ))}
     </View>
   );
 }
@@ -864,43 +900,43 @@ function YearCard({ year, tasksForYear, onOpenMonthDetail }: any) {
     setStep((prev) => prev + direction);
   }, []);
 
-  const openMonthDetail = useCallback(() => {
-    onOpenMonthDetail(year, selectedMonth, tasksForMonth);
-  }, [year, selectedMonth, tasksForMonth, onOpenMonthDetail]);
+  /** Hangi baloncuk → takvim ayı + o aya ait görevler */
+  const handleBubblePress = useCallback(
+    (bubbleIndex: number) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const month = monthIndexForBubble(bubbleIndex, selectedMonth, step);
+      const monthTasks = tasksForYear.filter((t: TaskItem) => {
+        const parts = t.date.split('-');
+        return parseInt(parts[1], 10) - 1 === month;
+      });
+      onOpenMonthDetail(year, month, monthTasks);
+    },
+    [year, selectedMonth, step, tasksForYear, onOpenMonthDetail]
+  );
 
-  const bubbleAreaGesture = useMemo(
+  const bubblePanGesture = useMemo(
     () =>
-      Gesture.Exclusive(
-        Gesture.Tap().onEnd(() => {
-          runOnJS(openMonthDetail)();
+      Gesture.Pan()
+        .minDistance(14)
+        .failOffsetY([-26, 26])
+        .activeOffsetX([-12, 12])
+        .onEnd((e) => {
+          const tx = e.translationX;
+          if (Math.abs(tx) > 28) {
+            runOnJS(changeMonthBy)(tx < 0 ? 1 : -1);
+          }
         }),
-        Gesture.Pan()
-          .minDistance(14)
-          .failOffsetY([-26, 26])
-          .activeOffsetX([-12, 12])
-          .onEnd((e) => {
-            const tx = e.translationX;
-            if (Math.abs(tx) > 28) {
-              runOnJS(changeMonthBy)(tx < 0 ? 1 : -1);
-            }
-          })
-      ),
-    [openMonthDetail, changeMonthBy]
+    [changeMonthBy]
   );
 
   return (
     <View style={styles.yearCardContainer}>
       <LinearGradient colors={['#F2F1F6', '#FFFFFF']} start={{ x: 0, y: 0.5 }} end={{ x: 0.8, y: 0.5 }} style={StyleSheet.absoluteFill} />
       <View style={styles.yearCardContent}>
-        <BubbleCarousel stepSV={stepSV} />
-        <GestureDetector gesture={bubbleAreaGesture}>
-          <View
-            style={styles.yearBubbleGestureLayer}
-            collapsable={false}
-            accessibilityRole="button"
-            accessibilityLabel={`${MONTH_NAMES[selectedMonth]} ayı sinyalleri`}
-          />
+        <GestureDetector gesture={bubblePanGesture}>
+          <View style={styles.yearBubbleGestureLayer} collapsable={false} />
         </GestureDetector>
+        <BubbleCarousel stepSV={stepSV} onBubblePress={handleBubblePress} />
         <View style={styles.yearCardLeft} pointerEvents="box-none">
           <Text style={styles.yearCardTitle}>{year.toString()}</Text>
           <View style={styles.monthSelectorRow}>
@@ -975,7 +1011,8 @@ function SignalsIndicator({ isActive }: { isActive: boolean }) {
 
 /**
  * Alt cam/pill bar: aktif sekme balonu, uzun basılı sürükleme ile sekme değiştirme,
- * sağda + FAB. Çift BlurView + degrade ile cam hissi (Expo Go dahil tutarlı).
+ * sağda + FAB.
+ * iOS: expo-glass-effect (Liquid Glass); Android ve diğerleri: güçlü BlurView fallback.
  */
 function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger, onSheetTrigger, homeScrollX }: any) {
   const activeBubbleX  = useSharedValue(0);
@@ -1046,10 +1083,52 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
   const navBlurMain = Platform.OS === 'ios' ? 92 : 56;
   const navBlurDeep = Platform.OS === 'ios' ? 42 : 28;
 
+  const useLiquidGlassNav = Platform.OS === 'ios';
+
+  const navGlassBubbleOnly = (
+    <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: 18 }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(221,221,221,0.30)', borderRadius: 18 }]} />
+      <View style={styles.navActiveBubbleHighlight} />
+    </Animated.View>
+  );
+
   return (
     <View style={styles.bottomBarWrapper} pointerEvents="box-none">
+      {useLiquidGlassNav ? (
+        <GlassContainer spacing={12} style={styles.glassContainerRow}>
+          <GlassView style={styles.navShadowWrapper} glassEffectStyle="regular" colorScheme="light">
+            {navGlassBubbleOnly}
+            <GestureDetector gesture={dragGesture}>
+              <View style={styles.navTabsRow}>
+                {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
+                {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
+                {renderTab(TAB_SIGNALS, "Signals", null, <SignalsIndicator isActive={currentTab === TAB_SIGNALS} />)}
+              </View>
+            </GestureDetector>
+          </GlassView>
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); runOnJS(onAddTrigger)(); }}
+            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); runOnJS(onSheetTrigger)(); }}
+            delayLongPress={250}
+            disabled={isFabDisabled}
+            activeOpacity={0.85}
+          >
+            <GlassView
+              style={[styles.fabShadowWrapper, isFabDisabled && styles.disabledButton]}
+              glassEffectStyle="regular"
+              isInteractive
+              colorScheme="light"
+            >
+              <View style={styles.fabIconWrapper}>
+                <Ionicons name="add" size={30} color={isFabDisabled ? '#999' : '#1a1a1a'} />
+              </View>
+            </GlassView>
+          </TouchableOpacity>
+        </GlassContainer>
+      ) : (
       <View style={styles.glassContainerRow}>
-        {/* Nav pill — çift blur + üst parlama + ince çerçeve */}
+        {/* Nav pill — çift blur + üst parlama + ince çerçeve (Liquid Glass API yokken) */}
         <View style={[styles.navShadowWrapper, { overflow: 'hidden', borderRadius: NEW_NAV_HEIGHT / 2 }]}>
           <BlurView
             intensity={navBlurMain}
@@ -1162,6 +1241,7 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
           </View>
         </TouchableOpacity>
       </View>
+      )}
     </View>
   );
 }

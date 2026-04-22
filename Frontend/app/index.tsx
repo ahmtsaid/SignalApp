@@ -271,15 +271,6 @@ const styles = StyleSheet.create({
   yearCardMonth: { fontFamily: 'HostGrotesk_400Regular', fontSize: 12, color: '#666', marginHorizontal: 4 },
   yearCardStats: { fontFamily: 'HostGrotesk_400Regular', fontSize: 10, color: '#999', marginBottom:6 , marginTop : -2},
   bubblesWrapper: { position: 'absolute', right: 0, left: 0, top: 0, bottom: 0, zIndex: 2 },
-  /** YearCard: yatay kaydırma — baloncukların altında (tıklama baloncuklarda) */
-  yearBubbleGestureLayer: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: '58%',
-    zIndex: 1,
-  }, 
   bubbleShadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 25, elevation: 8 },
   detailHeaderYear: { fontFamily: 'HostGrotesk_700Bold', fontSize: 16, color: Colors.primary },
   detailHeaderMonth: { fontFamily: 'HostGrotesk_400Regular', fontSize: 13, color: '#8E8E93' },
@@ -788,16 +779,42 @@ function monthIndexForBubble(bubbleIndex: number, selectedMonth: number, step: n
   return (selectedMonth + bubbleIndex - norm + 12) % 12;
 }
 
+function frontBubbleIndexFromStep(step: number): number {
+  return ((step % 6) + 6) % 6;
+}
+
 /** Yıl kartındaki tek “baloncuk” — `stepSV` ile aylık geçişte konum/ölçek animasyonu. */
 function BubbleItem({
   index,
   stepSV,
-  onPress,
+  onBubbleTap,
+  onSwipeMonth,
 }: {
   index: number;
   stepSV: SharedValue<number>;
-  onPress?: () => void;
+  onBubbleTap: (bubbleIndex: number) => void;
+  onSwipeMonth: (direction: number) => void;
 }) {
+  const gesture = useMemo(
+    () =>
+      Gesture.Exclusive(
+        Gesture.Pan()
+          .minDistance(12)
+          .activeOffsetX([-10, 10])
+          .failOffsetY([-28, 28])
+          .onEnd((e) => {
+            const tx = e.translationX;
+            if (Math.abs(tx) > 22) {
+              runOnJS(onSwipeMonth)(tx < 0 ? 1 : -1);
+            }
+          }),
+        Gesture.Tap().onEnd(() => {
+          runOnJS(onBubbleTap)(index);
+        })
+      ),
+    [index, onBubbleTap, onSwipeMonth]
+  );
+
   const style = useAnimatedStyle(() => {
     let rawDiff = index - stepSV.value;
     let diff = ((rawDiff % 6) + 6) % 6; 
@@ -810,41 +827,37 @@ function BubbleItem({
   });
 
   return (
-    <Animated.View style={[style, styles.bubbleShadow]}>
-      <Svg height="100%" width="100%" pointerEvents="none">
-        <Defs>
-          <RadialGradient id={`sphereGradient-${index}`} cx="30%" cy="50%" rx="60%" ry="60%" fx="30%" fy="20%">
-            <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
-            <Stop offset="5%" stopColor="rgba(242, 241, 246, 1)" stopOpacity="1" />
-            <Stop offset="100%" stopColor="rgb(181, 181, 187)" stopOpacity="1" />
-          </RadialGradient>
-          <SvgLinearGradient id={`diffuseLight-${index}`} x1="60%" y1="100%" x2="20%" y2="20%">
-            <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.7" />
-            <Stop offset="45%" stopColor="#FFFFFF" stopOpacity="0" />
-          </SvgLinearGradient>
-        </Defs>
-        <Circle cx="50%" cy="50%" r="50%" fill={`url(#sphereGradient-${index})`} />
-        <Circle cx="50%" cy="50%" r="50%" fill={`url(#diffuseLight-${index})`} />
-      </Svg>
-      {onPress ? (
-        <Pressable
-          onPress={onPress}
-          style={[StyleSheet.absoluteFill, { borderRadius: 999 }]}
-          accessibilityRole="button"
-          accessibilityLabel="Ay sinyallerini aç"
-        />
-      ) : null}
-    </Animated.View>
+    <GestureDetector gesture={gesture}>
+      <Animated.View style={[style, styles.bubbleShadow]} collapsable={false}>
+        <Svg height="100%" width="100%" pointerEvents="none">
+          <Defs>
+            <RadialGradient id={`sphereGradient-${index}`} cx="30%" cy="50%" rx="60%" ry="60%" fx="30%" fy="20%">
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+              <Stop offset="5%" stopColor="rgba(242, 241, 246, 1)" stopOpacity="1" />
+              <Stop offset="100%" stopColor="rgb(181, 181, 187)" stopOpacity="1" />
+            </RadialGradient>
+            <SvgLinearGradient id={`diffuseLight-${index}`} x1="60%" y1="100%" x2="20%" y2="20%">
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.7" />
+              <Stop offset="45%" stopColor="#FFFFFF" stopOpacity="0" />
+            </SvgLinearGradient>
+          </Defs>
+          <Circle cx="50%" cy="50%" r="50%" fill={`url(#sphereGradient-${index})`} />
+          <Circle cx="50%" cy="50%" r="50%" fill={`url(#diffuseLight-${index})`} />
+        </Svg>
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
 /** Alt alta 6 bubble — YearCard arka planında sürekli döngüsel animasyon. */
 function BubbleCarousel({
   stepSV,
-  onBubblePress,
+  onBubbleTap,
+  onSwipeMonth,
 }: {
   stepSV: SharedValue<number>;
-  onBubblePress?: (bubbleIndex: number) => void;
+  onBubbleTap: (bubbleIndex: number) => void;
+  onSwipeMonth: (direction: number) => void;
 }) {
   const items = useMemo(() => Array.from({ length: 6 }).map((_, i) => i), []);
   return (
@@ -854,7 +867,8 @@ function BubbleCarousel({
           key={i}
           index={i}
           stepSV={stepSV}
-          onPress={onBubblePress ? () => onBubblePress(i) : undefined}
+          onBubbleTap={onBubbleTap}
+          onSwipeMonth={onSwipeMonth}
         />
       ))}
     </View>
@@ -900,43 +914,39 @@ function YearCard({ year, tasksForYear, onOpenMonthDetail }: any) {
     setStep((prev) => prev + direction);
   }, []);
 
-  /** Hangi baloncuk → takvim ayı + o aya ait görevler */
-  const handleBubblePress = useCallback(
+  /** Ön (en büyük) baloncuk: ay detayı; diğerleri: öne getir (carousel döner) */
+  const handleBubbleTap = useCallback(
     (bubbleIndex: number) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      const month = monthIndexForBubble(bubbleIndex, selectedMonth, step);
-      const monthTasks = tasksForYear.filter((t: TaskItem) => {
-        const parts = t.date.split('-');
-        return parseInt(parts[1], 10) - 1 === month;
+      const norm = frontBubbleIndexFromStep(step);
+      if (bubbleIndex === norm) {
+        const month = monthIndexForBubble(bubbleIndex, selectedMonth, step);
+        const monthTasks = tasksForYear.filter((t: TaskItem) => {
+          const parts = t.date.split('-');
+          return parseInt(parts[1], 10) - 1 === month;
+        });
+        onOpenMonthDetail(year, month, monthTasks);
+        return;
+      }
+      let delta = bubbleIndex - norm;
+      if (delta > 3) delta -= 6;
+      if (delta < -3) delta += 6;
+      setStep((s) => s + delta);
+      setSelectedMonth((m) => {
+        let nm = m + delta;
+        while (nm > 11) nm -= 12;
+        while (nm < 0) nm += 12;
+        return nm;
       });
-      onOpenMonthDetail(year, month, monthTasks);
     },
     [year, selectedMonth, step, tasksForYear, onOpenMonthDetail]
-  );
-
-  const bubblePanGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .minDistance(14)
-        .failOffsetY([-26, 26])
-        .activeOffsetX([-12, 12])
-        .onEnd((e) => {
-          const tx = e.translationX;
-          if (Math.abs(tx) > 28) {
-            runOnJS(changeMonthBy)(tx < 0 ? 1 : -1);
-          }
-        }),
-    [changeMonthBy]
   );
 
   return (
     <View style={styles.yearCardContainer}>
       <LinearGradient colors={['#F2F1F6', '#FFFFFF']} start={{ x: 0, y: 0.5 }} end={{ x: 0.8, y: 0.5 }} style={StyleSheet.absoluteFill} />
       <View style={styles.yearCardContent}>
-        <GestureDetector gesture={bubblePanGesture}>
-          <View style={styles.yearBubbleGestureLayer} collapsable={false} />
-        </GestureDetector>
-        <BubbleCarousel stepSV={stepSV} onBubblePress={handleBubblePress} />
+        <BubbleCarousel stepSV={stepSV} onBubbleTap={handleBubbleTap} onSwipeMonth={changeMonthBy} />
         <View style={styles.yearCardLeft} pointerEvents="box-none">
           <Text style={styles.yearCardTitle}>{year.toString()}</Text>
           <View style={styles.monthSelectorRow}>
@@ -1044,39 +1054,61 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
     transform: [{ scale: fabScale.value }],
   }));
 
-  /** Anında sürükleme + sürüklerken hafif squash / dönüş (liquid) */
-  const dragGesture = Gesture.Pan()
-    .minDistance(2)
-    .activeOffsetX([-10, 10])
-    .failOffsetY([-22, 22])
-    .onBegin(() => {
-      bubbleScale.value = withSpring(1.11, { damping: 17, stiffness: 420 });
-      bubbleFillOp.value = withTiming(0.34, { duration: 170 });
-      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
-    })
-    .onUpdate((e) => {
-      const startX = currentTabSV.value * TAB_WIDTH;
-      activeBubbleX.value = clamp(startX + e.translationX, 0, (TAB_COUNT - 1) * TAB_WIDTH);
-      const vx = e.velocityX;
-      bubbleRotateDeg.value = clamp(vx / 380, -7, 7);
-      const dragAmt = Math.abs(e.translationX);
-      bubbleScale.value = 1.11 + Math.min(dragAmt / 240, 0.07);
-    })
-    .onEnd(() => {
-      const startX = currentTabSV.value * TAB_WIDTH;
-      const snapped = Math.round(clamp(activeBubbleX.value / TAB_WIDTH, 0, TAB_COUNT - 1));
-      activeBubbleX.value = withSpring(snapped * TAB_WIDTH, SPRING);
-      bubbleRotateDeg.value = withSpring(0, SPRING);
-      bubbleScale.value = withSpring(1.0, SPRING);
-      bubbleFillOp.value = withTiming(1.0, { duration: 240 });
-      runOnJS(onChangeTab)(snapped);
-      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
-    })
-    .onFinalize(() => {
-      bubbleRotateDeg.value = withSpring(0, SPRING);
-      bubbleScale.value = withSpring(1.0, SPRING);
-      bubbleFillOp.value = withTiming(1.0, { duration: 220 });
-    });
+  /** Uzun basışta FAB ile aynı sıvı elastik hissi (+ anında kaydırma ile birlikte) */
+  const bubbleLiquidHoldGesture = useMemo(
+    () =>
+      Gesture.LongPress()
+        .minDuration(210)
+        .maxDistance(14)
+        .onStart(() => {
+          bubbleScale.value = withSpring(1.26, FAB_ELASTIC_SPRING);
+          bubbleFillOp.value = withTiming(0.2, { duration: 200 });
+          runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
+        }),
+    []
+  );
+
+  /** Pan önce: hızlı kaydırma; Tap benzeri kısa dokunuş Pan’a düşer */
+  const dragGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(2)
+        .activeOffsetX([-10, 10])
+        .failOffsetY([-22, 22])
+        .onBegin(() => {
+          bubbleScale.value = withSpring(1.11, { damping: 17, stiffness: 420 });
+          bubbleFillOp.value = withTiming(0.32, { duration: 170 });
+          runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
+        })
+        .onUpdate((e) => {
+          const startX = currentTabSV.value * TAB_WIDTH;
+          activeBubbleX.value = clamp(startX + e.translationX, 0, (TAB_COUNT - 1) * TAB_WIDTH);
+          const vx = e.velocityX;
+          bubbleRotateDeg.value = clamp(vx / 380, -7, 7);
+          const dragAmt = Math.abs(e.translationX);
+          bubbleScale.value = 1.11 + Math.min(dragAmt / 240, 0.07);
+        })
+        .onEnd(() => {
+          const snapped = Math.round(clamp(activeBubbleX.value / TAB_WIDTH, 0, TAB_COUNT - 1));
+          activeBubbleX.value = withSpring(snapped * TAB_WIDTH, SPRING);
+          bubbleRotateDeg.value = withSpring(0, SPRING);
+          bubbleScale.value = withSpring(1.0, SPRING);
+          bubbleFillOp.value = withTiming(1.0, { duration: 240 });
+          runOnJS(onChangeTab)(snapped);
+          runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Light);
+        })
+        .onFinalize(() => {
+          bubbleRotateDeg.value = withSpring(0, SPRING);
+          bubbleScale.value = withSpring(1.0, SPRING);
+          bubbleFillOp.value = withTiming(1.0, { duration: 220 });
+        }),
+    [onChangeTab]
+  );
+
+  const navBubbleGesture = useMemo(
+    () => Gesture.Simultaneous(bubbleLiquidHoldGesture, dragGesture),
+    [bubbleLiquidHoldGesture, dragGesture]
+  );
 
   const renderTab = (tabIndex: number, label: string, iconName: any, customIcon?: React.ReactNode) => {
     const isActive = currentTab === tabIndex;
@@ -1101,8 +1133,9 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
 
   const navGlassBubbleOnly = (
     <Animated.View style={[styles.navActiveBubble, bubbleAnimStyle]} pointerEvents="none">
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: 18 }]} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(221,221,221,0.30)', borderRadius: 18 }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(175,175,185,0.92)', borderRadius: 18 }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(120,120,132,0.28)', borderRadius: 18 }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 18 }]} />
       <View style={styles.navActiveBubbleHighlight} />
     </Animated.View>
   );
@@ -1113,7 +1146,7 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
         <GlassContainer spacing={12} style={styles.glassContainerRow}>
           <GlassView style={styles.navShadowWrapper} glassEffectStyle="regular" colorScheme="light">
             {navGlassBubbleOnly}
-            <GestureDetector gesture={dragGesture}>
+            <GestureDetector gesture={navBubbleGesture}>
               <View style={styles.navTabsRow}>
                 {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
                 {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
@@ -1205,12 +1238,13 @@ function LiquidBottomNav({ currentTab, isFabDisabled, onChangeTab, onAddTrigger,
               tint="light"
               style={[StyleSheet.absoluteFill, { borderRadius: 18, overflow: 'hidden' }]}
             />
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.62)', borderRadius: 18 }]} />
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(221,221,221,0.26)', borderRadius: 18 }]} />
-            <View style={[StyleSheet.absoluteFill, { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.9)' }]} />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(175,175,185,0.88)', borderRadius: 18 }]} />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(95,95,110,0.22)', borderRadius: 18 }]} />
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 18 }]} />
+            <View style={[StyleSheet.absoluteFill, { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.75)' }]} />
             <View style={styles.navActiveBubbleHighlight} />
           </Animated.View>
-          <GestureDetector gesture={dragGesture}>
+          <GestureDetector gesture={navBubbleGesture}>
             <View style={styles.navTabsRow}>
               {renderTab(TAB_FLOW, "Flow", null, <FlowIndicator homeScrollX={homeScrollX} isActive={currentTab === TAB_FLOW} />)}
               {renderTab(TAB_TRACK, "Track", null, <TrackIndicator isActive={currentTab === TAB_TRACK} />)}
@@ -2386,7 +2420,10 @@ export default function App() {
 
   useEffect(() => {
     getOnboardingComplete().then((done) => {
-      setHasCompletedOnboarding(done);
+      const forceOnboarding =
+        typeof process.env.EXPO_PUBLIC_FORCE_ONBOARDING === 'string' &&
+        process.env.EXPO_PUBLIC_FORCE_ONBOARDING.toLowerCase() === 'true';
+      setHasCompletedOnboarding(forceOnboarding ? false : done);
       setOnboardingChecked(true);
     });
   }, []);

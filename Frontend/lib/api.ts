@@ -1,10 +1,31 @@
+/**
+ * .NET SignalApp API ile konuşma katmanı.
+ * Her istekte Supabase `access_token` Authorization header olarak eklenir.
+ * Gövde/yanıt: backend `Signal` ↔ UI `TaskItem` (status yüzde dönüşümü burada).
+ */
 import axios from 'axios';
 import { supabase } from './supabase';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Backend API URL — .env dosyasından gelir
+// Backend API URL — .env → EXPO_PUBLIC_API_URL (sondaki / kırpılır)
 // ─────────────────────────────────────────────────────────────────────────────
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL as string;
+const RAW_BASE = (process.env.EXPO_PUBLIC_API_URL ?? "").trim();
+const BASE_URL = RAW_BASE.replace(/\/$/, "");
+
+function requireApiBase(): string {
+  if (!BASE_URL) {
+    throw new Error(
+      "EXPO_PUBLIC_API_URL tanımlı değil veya boş. Frontend/.env içine backend kök adresini yazın (örn. https://xxx.up.railway.app)."
+    );
+  }
+  return BASE_URL;
+}
+
+if (__DEV__ && !RAW_BASE) {
+  console.warn(
+    "[api] EXPO_PUBLIC_API_URL ayarlı değil — sinyal eklemek için .env dosyasına API adresini ekleyin."
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TaskItem tipi (index.tsx'deki ile aynı, circular import'tan kaçınmak için
@@ -62,16 +83,18 @@ export const api = {
 
   /** Kullanıcının tüm sinyallerini getir (isteğe bağlı tarih filtresi) */
   async getSignals(date?: string): Promise<ApiTask[]> {
+    const base    = requireApiBase();
     const headers = await authHeaders();
     const params  = date ? { date } : undefined;
-    const res     = await axios.get(`${BASE_URL}/api/signals`, { headers, params });
+    const res     = await axios.get(`${base}/api/signals`, { headers, params });
     return (res.data as any[]).map(fromSignal);
   },
 
   /** Yeni sinyal oluştur */
   async createSignal(task: Partial<ApiTask>): Promise<ApiTask> {
+    const base    = requireApiBase();
     const headers = await authHeaders();
-    const res     = await axios.post(`${BASE_URL}/api/signals`, toSignal(task), { headers });
+    const res     = await axios.post(`${base}/api/signals`, toSignal(task), { headers });
     return fromSignal(res.data);
   },
 
@@ -87,7 +110,8 @@ export const api = {
     if (updates.note   !== undefined) body.description = updates.note;
     if (updates.status !== undefined)
       body.status = updates.status === -1 ? -1 : Math.round(updates.status * 100);
-    const res = await axios.patch(`${BASE_URL}/api/signals/${id}`, body, { headers });
+    const base = requireApiBase();
+    const res = await axios.patch(`${base}/api/signals/${id}`, body, { headers });
     return fromSignal(res.data);
   },
 
@@ -98,12 +122,14 @@ export const api = {
       id:        parseInt(id, 10),
       sortOrder: index,
     }));
-    await axios.post(`${BASE_URL}/api/signals/reorder`, body, { headers });
+    const base = requireApiBase();
+    await axios.post(`${base}/api/signals/reorder`, body, { headers });
   },
 
   /** Sinyal sil */
   async deleteSignal(id: string): Promise<void> {
     const headers = await authHeaders();
-    await axios.delete(`${BASE_URL}/api/signals/${id}`, { headers });
+    const base = requireApiBase();
+    await axios.delete(`${base}/api/signals/${id}`, { headers });
   },
 };

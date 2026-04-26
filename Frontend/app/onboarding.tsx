@@ -26,6 +26,8 @@ import { setOnboardingComplete } from '../lib/onboardingStorage';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const BACKGROUND_COLOR = 'rgba(37, 36, 34, 1)'; 
+const TEXT_BUTTON_GAP = 32;
+const TITLE_SUBTITLE_GAP = 12;
 
 const ONBOARDING_DATA = [
   { 
@@ -41,8 +43,8 @@ const ONBOARDING_DATA = [
     subtitle: "Define your priorities. Stay\nconsistent. Visualize your\nmomentum." 
   },
   {
-    title: "Your daily signal for \n    what matters.",
-    subtitle: "Three intents to clear the noise \n   and build your track record."
+    title: "Your daily signal for\nwhat matters.",
+    subtitle: "Three intents to clear the noise\nand build your track record."
   }
 ];
 
@@ -329,7 +331,7 @@ export default function OnboardingScreen() {
   }));
 
   const maskOpacityStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(stepProgress.value, [1, 1.05, 2.9, 3], [1, 0, 0, 0], Extrapolation.CLAMP),
+    opacity: interpolate(stepProgress.value, [0, 0.85, 1], [1, 0, 0], Extrapolation.CLAMP),
   }));
 
   const animatedBgStyle = useAnimatedStyle(() => ({
@@ -496,11 +498,11 @@ const styles = StyleSheet.create({
   boundingLine: { position: 'absolute', width: 175, height: 2, zIndex: 10, shadowColor: 'rgba(244, 244, 244, 1)', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 25, elevation: 3 },
   paginationContainer: { flexDirection: 'row', paddingHorizontal: 32, marginBottom: 24, gap: 6 },
   dot: { height: 8, borderRadius: 4 },
-  textSliderWrapper: { height: 160 },
-  textPage: { width: SCREEN_WIDTH, paddingHorizontal: 32 },
+  textSliderWrapper: { height: 160, marginBottom: TEXT_BUTTON_GAP },
+  textPage: { width: SCREEN_WIDTH, paddingHorizontal: 32, justifyContent: 'flex-end' },
   
-  title: { fontFamily: 'HostGrotesk_500Medium', fontSize: 32, marginBottom: 12, lineHeight: 32 },
-  subtitle: { fontFamily: 'HostGrotesk_500Medium', fontSize: 21, lineHeight: 21, marginBottom: 24 },
+  title: { fontFamily: 'HostGrotesk_500Medium', fontSize: 32, marginBottom: TITLE_SUBTITLE_GAP, lineHeight: 32 },
+  subtitle: { fontFamily: 'HostGrotesk_500Medium', fontSize: 21, lineHeight: 21 },
   
   button: { marginHorizontal: 32, width : 320, height: 48, borderRadius: 12,justifyContent: 'center', alignItems: 'center', alignSelf: 'center' },
   buttonText: { fontFamily: 'HostGrotesk_500Medium', fontSize: 18 },
@@ -516,12 +518,14 @@ const styles = StyleSheet.create({
   textPageScreen4: { paddingHorizontal: 50 }, 
   titleScreen4: {
     fontSize: 32, 
-    lineHeight: 44, 
-    marginBottom: 12,
-    marginTop : 0, 
+    lineHeight: 32,
+    marginBottom: TITLE_SUBTITLE_GAP,
+    marginTop: 0,
+    textAlign: 'center',
   },
   subtitleScreen4: {
-    fontSize: 20, 
+    fontSize: 20,
     lineHeight: 24,
+    textAlign: 'center',
   }
 });

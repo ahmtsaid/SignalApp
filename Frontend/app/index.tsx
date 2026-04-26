@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Redirect } from 'expo-router';
-import { Animated as RNAnimated, StyleSheet, Text, View, TouchableOpacity, SafeAreaView, Platform, StatusBar, TextInput, Keyboard, UIManager, Pressable, Dimensions, ScrollView } from 'react-native';
+import { Animated as RNAnimated, Alert, StyleSheet, Text, View, TouchableOpacity, SafeAreaView, Platform, StatusBar, TextInput, Keyboard, UIManager, Pressable, Dimensions, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
@@ -688,10 +688,15 @@ function ActivityGrid({ baseDate, allTasks }: { baseDate: Date, allTasks: TaskIt
          const dateStr = `${year}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
          rows[dow].push(dateStr);
       }
-      data.push({ name: MONTH_NAMES[m], rows }); 
+      const maxColumns = Math.max(...rows.map(row => row.length));
+      const rightAlignedRows = rows.map(row => [
+        ...Array.from({ length: maxColumns - row.length }, () => ''),
+        ...row,
+      ]);
+      data.push({ name: MONTH_NAMES[m], rows: rightAlignedRows }); 
     }
     return data;
-  }, [year, allTasks]);
+  }, [year]);
 
   useEffect(() => {
       setTimeout(() => {
@@ -2287,6 +2292,8 @@ const FlowHomeScreen = React.memo(function FlowHomeScreen({ allTasks, setAllTask
         .catch((err: unknown) => {
           console.warn('Sinyal oluşturma hatası:', err);
           setAllTasks((prev: TaskItem[]) => prev.filter(t => t.id !== tempId));
+          const message = err instanceof Error ? err.message : 'Backend veya oturum bağlantısı kontrol edilmeli.';
+          Alert.alert('Signal oluşturulamadı', message);
         });
     }
     setTaskText('');

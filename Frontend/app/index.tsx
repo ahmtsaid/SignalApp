@@ -4,7 +4,7 @@ import { Animated as RNAnimated, StyleSheet, Text, View, TouchableOpacity, SafeA
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
-import { getOnboardingComplete } from '../lib/onboardingStorage';
+import { getOnboardingComplete, getOnboardingCompleteThisSession } from '../lib/onboardingStorage';
 import { useFonts, HostGrotesk_500Medium, HostGrotesk_400Regular, HostGrotesk_700Bold } from '@expo-google-fonts/host-grotesk';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView, Swipeable, GestureDetector, Gesture } from 'react-native-gesture-handler';
@@ -2420,7 +2420,7 @@ export default function App() {
       const forceOnboarding =
         typeof process.env.EXPO_PUBLIC_FORCE_ONBOARDING === 'string' &&
         process.env.EXPO_PUBLIC_FORCE_ONBOARDING.toLowerCase() === 'true';
-      setHasCompletedOnboarding(forceOnboarding ? false : done);
+      setHasCompletedOnboarding(forceOnboarding ? getOnboardingCompleteThisSession() : done);
       setOnboardingChecked(true);
     });
   }, []);

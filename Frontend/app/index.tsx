@@ -2418,8 +2418,9 @@ export default function App() {
   useEffect(() => {
     getOnboardingComplete().then((done) => {
       const forceOnboarding =
-        typeof process.env.EXPO_PUBLIC_FORCE_ONBOARDING === 'string' &&
-        process.env.EXPO_PUBLIC_FORCE_ONBOARDING.toLowerCase() === 'true';
+        __DEV__ ||
+        (typeof process.env.EXPO_PUBLIC_FORCE_ONBOARDING === 'string' &&
+          process.env.EXPO_PUBLIC_FORCE_ONBOARDING.toLowerCase() === 'true');
       setHasCompletedOnboarding(forceOnboarding ? getOnboardingCompleteThisSession() : done);
       setOnboardingChecked(true);
     });
